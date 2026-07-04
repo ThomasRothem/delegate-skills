@@ -140,9 +140,6 @@ OpenCode's autonomy is governed by the **agent**, not a sandbox enum:
   equivalent of "let it implement."
 - **`plan`** (via `--read-only`) — read-only; reviews and diagnoses without touching the tree. The
   equivalent of "let it look but not edit."
-- **`--dangerous`** adds `--dangerously-skip-permissions`, which auto-approves anything not explicitly
-  denied (broad access — e.g. shell reaching outside the workspace). Opt in only when the task genuinely
-  needs it.
 
 ## Authorization model
 

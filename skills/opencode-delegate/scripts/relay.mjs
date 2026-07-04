@@ -20,8 +20,6 @@
  * OpenCode autonomy is governed by the chosen agent, not a sandbox enum:
  *   build (default) — write-capable; edits files in the working dir headlessly.
  *   plan            — read-only; reviews/diagnoses without touching the tree.
- * `--dangerously-skip-permissions` auto-approves anything not explicitly denied
- * (broad access — opt in only when the task genuinely needs it).
  *
  * Usage:
  *   node relay.mjs --brief <file> [options]
@@ -35,7 +33,6 @@
  *   --agent <name>          OpenCode agent (default: build). Use plan for read-only review.
  *   --read-only             Shortcut for --agent plan (review/diagnosis, no edits).
  *   --variant <name>        Provider reasoning effort (e.g. high, max, minimal).
- *   --dangerous             Add --dangerously-skip-permissions (broad access; use sparingly).
  *   --resume-last           Continue the most recent OpenCode session; send only the delta brief.
  *   --session <id>          Continue a specific session id (ses_...); send only the delta brief.
  *   --pure                  Run OpenCode without external plugins (cleaner event stream).
@@ -73,7 +70,6 @@ function parseArgs(argv) {
     model: null,
     agent: "build",
     variant: null,
-    dangerous: false,
     resumeLast: false,
     session: null,
     pure: false,
@@ -99,7 +95,6 @@ function parseArgs(argv) {
       case "--agent": opts.agent = next(); break;
       case "--read-only": opts.agent = "plan"; break;
       case "--variant": opts.variant = next(); break;
-      case "--dangerous": opts.dangerous = true; break;
       case "--resume-last": opts.resumeLast = true; break;
       case "--session": opts.session = next(); break;
       case "--pure": opts.pure = true; break;
@@ -178,7 +173,6 @@ function buildArgv(opts) {
   }
   if (opts.model) argv.push("--model", opts.model);
   if (opts.variant) argv.push("--variant", opts.variant);
-  if (opts.dangerous) argv.push("--dangerously-skip-permissions");
   // No message argument: the brief is piped on stdin (see dispatchToOpenCode),
   // which avoids all argv-quoting issues with multi-line, XML-tagged briefs.
   return argv;
@@ -264,7 +258,6 @@ function makeResultWriter(opts, version, run) {
       workdir: opts.cd,
       agent: resuming ? "(inherited from resumed session)" : opts.agent,
       model: opts.model,
-      dangerous: opts.dangerous,
       resumeLast: opts.resumeLast,
       opencodeVersion: version,
       startedAt: run.startedAt,

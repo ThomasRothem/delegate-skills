@@ -35,7 +35,6 @@ Options:
 | `--agent <name>` | OpenCode agent (default: `build`, write-capable). |
 | `--read-only` | Shortcut for `--agent plan` — review/diagnosis with no edits. |
 | `--variant <name>` | Provider reasoning effort (e.g. `high`, `max`, `minimal`). |
-| `--dangerous` | Add `--dangerously-skip-permissions` — broad access; use sparingly. |
 | `--resume-last` | Continue the most recent OpenCode session; send only the delta brief (see review-and-land). |
 | `--session <id>` | Continue a specific session id (`ses_…`); send only the delta brief. |
 | `--pure` | Run OpenCode without external plugins (cleaner event stream). |
@@ -63,7 +62,7 @@ touched-files report shows only OpenCode's edits and nothing of the helper's own
 - `cost` — total run cost in USD, summed from the step events (`null` if none were reported)
 - `briefPath` / `eventsPath` / `finalPath` — the exact brief relay sent, the raw JSON event stream, and
   the final-message file
-- `workdir`, `model`, `dangerous`, `resumeLast`, `startedAt`, `finishedAt`
+- `workdir`, `model`, `resumeLast`, `startedAt`, `finishedAt`
 - `stderrTail` — last ~20 stderr lines; present **only** on a failed run, absent on `completed`,
   `opencode_unavailable`, and launch failures
 - `error` — present **only** if OpenCode failed to launch
@@ -101,7 +100,7 @@ process has exited and `result.json` is written — not when a status line says 
   [writing-the-brief.md](writing-the-brief.md)).
 - **A run hangs:** an agent with an `ask` permission can block waiting for approval that never comes in
   headless mode. The `build` and `plan` agents don't prompt for in-workspace work; if a custom agent
-  does, either grant the permission in its config or pass `--dangerous` for that run.
+  does, grant the needed permission in its config, or switch to `build`/`plan`.
 
 ## What the helper is doing (and the alternatives)
 
