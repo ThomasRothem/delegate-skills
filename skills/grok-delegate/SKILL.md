@@ -66,7 +66,7 @@ orchestrators use that same directory — if unsure where it landed, run
 
 ```bash
 node "<skill-dir>/scripts/relay.mjs" --brief brief.txt --cd /path/to/repo
-# read-only (review/diagnosis, no edits):   add --read-only
+# read-only (review/diagnosis; best-effort — verify touchedFiles): add --read-only
 # continue the previous Grok session:       add --resume-last  (send only the delta brief)
 # see all options:                          node .../relay.mjs --help
 ```
@@ -122,12 +122,17 @@ relay therefore always sets autonomy explicitly:
 | Relay flag | What Grok gets | Use when |
 | --- | --- | --- |
 | *(default)* | `--always-approve --sandbox workspace` | Normal implementation — writes scoped to the working tree |
-| `--read-only` | `--sandbox read-only --permission-mode plan` | Review / diagnosis with no working-tree edits |
+| `--read-only` | `--sandbox read-only --permission-mode plan` | Review / diagnosis — **best-effort, not enforced** (see caveat below) |
 | `--full-access` | `--always-approve --sandbox off` | Explicit opt-in when the task needs unrestricted tools |
 
 `--always-approve` alone would approve *all* tools (writes, shell, network) — closer to unrestricted
 than to a workspace-scoped write. Pairing it with `--sandbox workspace` is what keeps the default
 safe. Reach for `--full-access` only when the human asks for it.
+
+**`--read-only` is best-effort, not a hard guarantee.** On grok 0.2.101 the read-only sandbox restricts
+out-of-workspace filesystem/network access, not grok's own edit tool, and headless `plan` mode is
+advisory — a run verified here still wrote the working tree when told to. Use `--read-only` to *signal*
+review intent, but always confirm `touchedFiles` afterward; treat the diff, not the flag, as the guarantee.
 
 ## Authorization model
 

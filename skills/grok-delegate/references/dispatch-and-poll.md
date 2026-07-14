@@ -36,11 +36,10 @@ Options:
 | `--cd <dir>` | Working root for Grok (default: current directory); passed as `--cwd`. |
 | `--model <name>` | Grok model (default: Grok's own configured default). |
 | `--effort <level>` | Reasoning effort for this run (`--effort`). |
-| `--read-only` | Review/diagnosis with no edits (`--sandbox read-only --permission-mode plan`). |
+| `--read-only` | Review/diagnosis intent (`--sandbox read-only --permission-mode plan`). **Best-effort, not enforced** on grok 0.2.101 — grok can still edit the tree headlessly, so always verify `touchedFiles`. |
 | `--full-access` | Unrestricted auto-approve (`--always-approve --sandbox off`); opt-in. |
 | `--resume-last` | Continue the most recent Grok session for this cwd; send only the delta brief. |
 | `--session <id>` | Continue a specific session id; mutually exclusive with `--resume-last`. |
-| `--prompt-stdin` | **Experimental.** Pipe the brief on stdin and pass `-p -` instead of putting the brief in argv. Unverified — use while testing which delivery path Grok accepts. |
 | `--out-dir <dir>` | Where artifacts go (default: a fresh dir under the system temp dir). |
 
 Default autonomy (neither `--read-only` nor `--full-access`) is **workspace-write**:
@@ -60,10 +59,11 @@ touched-files report shows only Grok's edits and nothing of the helper's own.
 - `exitCode` — mirrors Grok's exit code; `127` if `grok` isn't on PATH
 - `grokVersion` — the binary that actually ran
 - `sessionId` — feed this to a later `--session <id>` (or use `--resume-last`)
-- `finalMessage` — Grok's own final report (the `<structured_output_contract>` you asked for)
+- `finalMessage` — Grok's own final report (the `<structured_output_contract>` you asked for), assembled from the streaming-json `text` events
+- `usage` — token counts from the run's end event (`input_tokens` / `output_tokens` / `total_tokens`); `null` if none were reported
 - `touchedFiles` — `git status --porcelain` lines in the working root: your review starting point. `null` (not `[]`) when git can't report; `[]` means git ran and the tree is clean
 - `briefPath` / `eventsPath` / `finalPath` — the exact brief relay sent, the raw streaming-json event stream, and the final-message file
-- `workdir`, `autonomy`, `model`, `effort`, `resumeLast`, `promptStdin`, `startedAt`, `finishedAt`
+- `workdir`, `autonomy`, `model`, `effort`, `resumeLast`, `startedAt`, `finishedAt`
 - `stderrTail` — last ~20 stderr lines; present **only** on a failed run (a non-zero Grok exit), absent on `completed`, `grok_unavailable`, and launch failures
 - `error` — present **only** if Grok failed to launch
 
@@ -106,31 +106,32 @@ Under the hood the helper runs roughly:
 ```bash
 # fresh run (default workspace-write autonomy)
 grok --no-auto-update --no-alt-screen --output-format streaming-json --cwd <repo> \
-  --always-approve --sandbox workspace -p "<brief>"
+  --always-approve --sandbox workspace --prompt-file <brief.txt>
 
 # resume most recent session for this cwd
 grok --no-auto-update --no-alt-screen --output-format streaming-json --cwd <repo> \
-  --continue --always-approve --sandbox workspace -p "<delta>"
+  --continue --always-approve --sandbox workspace --prompt-file <delta.txt>
 
 # resume a specific session
 grok --no-auto-update --no-alt-screen --output-format streaming-json --cwd <repo> \
-  --resume <id> --always-approve --sandbox workspace -p "<delta>"
+  --resume <id> --always-approve --sandbox workspace --prompt-file <delta.txt>
 ```
 
 `--no-auto-update` and `--no-alt-screen` are always set so automated runs don't check for updates or
 take over the terminal. Autonomy flags are re-passed on resume because headless permission mode may
 not inherit.
 
-**Prompt delivery:** by default the brief is the `-p` argv value. `--prompt-stdin` is an experimental
-alternate that pipes the brief on stdin and passes `-p -` — use it while testing which path Grok
-accepts for multi-line XML briefs; lock in the winner once verified.
+**Prompt delivery:** the brief is handed to grok via `--prompt-file`, never argv — so it stays out of
+the host process list, isn't bounded by the OS argument-length cap, and a brief that begins with `-`
+can't be misread as a flag. The relay writes the brief you pass (via `--brief` or stdin) to a file and
+points `--prompt-file` at it.
 
 Two alternatives exist if you ever want them, but the helper is the recommended path:
 
-- **Raw `grok -p`** — fine for one-offs; you give up the captured `result.json`, touched-files
-  summary, and session-id extraction the helper does for you.
+- **Raw `grok --prompt-file`** — fine for one-offs; you give up the captured `result.json`,
+  touched-files summary, and session-id extraction the helper does for you.
 - **`grok agent stdio` (ACP)** — richer IDE/tool integration over JSON-RPC. Out of scope for this
-  skill; the headless `-p` path is the one the relay drives.
+  skill; the headless single-turn path is the one the relay drives.
 
 ## The commit boundary
 

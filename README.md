@@ -132,13 +132,17 @@ This package is intentionally inspectable:
 
 **Verification status:** each relay's mechanics are verified — argument handling, exit codes,
 `result.json`, resume, and (for `opencode-delegate`) the required-model guard, since OpenCode has no safe
-default. For `grok-delegate`, relay mechanics (arg handling, exit codes, `result.json`, autonomy flag
-assembly, resume/session mutual exclusion, missing-binary `grok_unavailable`) are exercised; a full
-authenticated `grok -p` end-to-end run is not claimed here (Grok Build is beta-gated). The full
-delegate → review → commit loop is designed for and run on Claude Code but not yet formally verified
-end-to-end here (OpenCode's cold start is slow in constrained shells, so exercise a real run in a
-normal terminal). Other orchestrators (Cursor, …) are designed-for but unproven. This line gets
-upgraded to "verified end-to-end" with evidence, not assumption.
+default. `grok-delegate` is verified end-to-end on macOS against **grok 0.2.101**: a headless run streams
+`--output-format streaming-json`, the relay reconstructs `finalMessage` from the `text` events and the
+session id + token `usage` from the end event, default autonomy (`--always-approve --sandbox workspace`)
+edits the working tree headlessly, `--resume-last` continues a prior session, and the deterministic paths
+(arg handling, exit codes, autonomy-flag assembly, resume/session mutual exclusion, missing-binary
+`grok_unavailable`) hold. **One caveat, confirmed by testing:** `--read-only` is *best-effort*, not
+enforced — grok's read-only sandbox restricts out-of-workspace access, not its own edit tool, so a
+headless run can still write the tree; verify `touchedFiles` rather than trusting the flag. Windows
+launch is not yet smoke-tested for `grok-delegate`. The full delegate → review → commit loop is designed
+for and run on Claude Code; other orchestrators (Cursor, …) are designed-for but unproven. This line gets
+upgraded with evidence, not assumption.
 
 ## Repository shape
 

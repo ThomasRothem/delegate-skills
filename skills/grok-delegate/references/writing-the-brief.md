@@ -50,7 +50,8 @@ profile calls for them:
   first plausible fix) and `<missing_context_gating>` (don't guess missing repo facts; find them or
   state what's unknown).
 - **Review / diagnosis (read-only)** — add `<grounding_rules>` (ground every claim in evidence; label
-  inferences) and run with `--read-only` so Grok can't edit.
+  inferences), tell Grok in the brief not to edit anything, and run with `--read-only`. Note
+  `--read-only` is best-effort on grok, not a hard block — verify `touchedFiles` after the run.
 - **Research / recommendations** — add `<research_mode>` (separate observed facts, inferences, open
   questions).
 
