@@ -124,6 +124,13 @@ function parseArgs(argv) {
   if (opts.resumeLast && opts.session) {
     fail("--resume-last and --session are mutually exclusive");
   }
+  // These values reach a shell on win32 (shell:true for the .cmd shim), so restrict them to safe tokens.
+  const safeToken = /^[A-Za-z0-9][A-Za-z0-9._:\/-]*$/;
+  for (const flag of ["model", "effort", "session"]) {
+    if (opts[flag] !== null && !safeToken.test(opts[flag])) {
+      fail(`--${flag} value contains unsupported characters (allowed: letters, digits, . _ : / -)`);
+    }
+  }
   return opts;
 }
 
@@ -139,6 +146,9 @@ function readBrief(opts) {
   if (opts.brief) {
     if (!existsSync(opts.brief)) fail(`brief file not found: ${opts.brief}`);
     return readFileSync(opts.brief, "utf8");
+  }
+  if (process.stdin.isTTY) {
+    fail("no --brief given and stdin is a TTY; pass --brief <file> or pipe the brief on stdin");
   }
   // No --brief: read from stdin (fd 0). Empty stdin is an error.
   let stdin = "";
@@ -340,7 +350,7 @@ function makeResultWriter(opts, version, run) {
 function reportUnavailable(writeResult, resultPath) {
   const result = writeResult({ status: "grok_unavailable", exitCode: 127, sessionId: null, finalMessage: "", usage: null, touchedFiles: null });
   printSummary(result, resultPath);
-  process.stderr.write("relay: `grok` not found on PATH. Install it (curl -fsSL https://x.ai/cli/install.sh | bash, or npm i -g @xai-official/grok) and run `grok login`.\n");
+  process.stderr.write("relay: `grok` not found on PATH. Install it with `npm i -g @xai-official/grok` and run `grok login`.\n");
   process.exit(127);
 }
 
@@ -390,7 +400,10 @@ function dispatchToGrok(opts, run, writeResult) {
     return message;
   };
 
+  let settled = false;
   child.on("error", (err) => {
+    if (settled) return;
+    settled = true;
     const result = writeResult({
       status: "failed",
       exitCode: 1,
@@ -405,6 +418,8 @@ function dispatchToGrok(opts, run, writeResult) {
   });
 
   child.on("close", (code) => {
+    if (settled) return;
+    settled = true;
     const finalMessage = assembleFinal();
     const result = writeResult({
       status: code === 0 ? "completed" : "failed",

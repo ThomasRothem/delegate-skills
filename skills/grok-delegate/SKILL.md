@@ -34,10 +34,9 @@ orchestrators as designed-for, not yet proven.)
 
 ## Prerequisites (check once)
 
-1. `grok version` succeeds. If not, install (`curl -fsSL https://x.ai/cli/install.sh | bash`, or
-   `npm i -g @xai-official/grok` on Windows PowerShell use `irm https://x.ai/cli/install.ps1 | iex`)
-   and authenticate (`grok login`, or `grok login --device-auth` on headless hosts, or set
-   `XAI_API_KEY`).
+1. `grok version` succeeds. If not, install on any platform with
+   `npm i -g @xai-official/grok` and authenticate (`grok login`, or `grok login --device-auth` on
+   headless hosts, or set `XAI_API_KEY`).
 2. **Confirm which `grok` is on PATH.** `command -v grok` shows the active binary and `grok version`
    its version — the relay records the version it ran into `result.json`, so a stale binary is visible
    after the fact.
@@ -129,10 +128,10 @@ relay therefore always sets autonomy explicitly:
 than to a workspace-scoped write. Pairing it with `--sandbox workspace` is what keeps the default
 safe. Reach for `--full-access` only when the human asks for it.
 
-**`--read-only` is best-effort, not a hard guarantee.** On grok 0.2.101 the read-only sandbox restricts
-out-of-workspace filesystem/network access, not grok's own edit tool, and headless `plan` mode is
-advisory — a run verified here still wrote the working tree when told to. Use `--read-only` to *signal*
-review intent, but always confirm `touchedFiles` afterward; treat the diff, not the flag, as the guarantee.
+**`--read-only` is best-effort, not a hard guarantee.** The read-only sandbox restricts out-of-workspace
+filesystem/network access, not grok's own edit tool, and headless `plan` mode is advisory — a run
+verified here still wrote the working tree when told to. Use `--read-only` to *signal* review intent,
+but always confirm `touchedFiles` afterward; treat the diff, not the flag, as the guarantee.
 
 ## Authorization model
 

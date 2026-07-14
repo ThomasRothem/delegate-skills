@@ -36,7 +36,7 @@ Options:
 | `--cd <dir>` | Working root for Grok (default: current directory); passed as `--cwd`. |
 | `--model <name>` | Grok model (default: Grok's own configured default). |
 | `--effort <level>` | Reasoning effort for this run (`--effort`). |
-| `--read-only` | Review/diagnosis intent (`--sandbox read-only --permission-mode plan`). **Best-effort, not enforced** on grok 0.2.101 — grok can still edit the tree headlessly, so always verify `touchedFiles`. |
+| `--read-only` | Review/diagnosis intent (`--sandbox read-only --permission-mode plan`). **Best-effort, not enforced** — grok can still edit the tree headlessly, so always verify `touchedFiles`. |
 | `--full-access` | Unrestricted auto-approve (`--always-approve --sandbox off`); opt-in. |
 | `--resume-last` | Continue the most recent Grok session for this cwd; send only the delta brief. |
 | `--session <id>` | Continue a specific session id; mutually exclusive with `--resume-last`. |
@@ -88,9 +88,8 @@ process has exited and `result.json` is written — not when a status line says 
 
 ## When a run misbehaves
 
-- **`status: grok_unavailable` (exit 127):** `grok` isn't on PATH or isn't found. Install
-  (`curl -fsSL https://x.ai/cli/install.sh | bash`, or `npm i -g @xai-official/grok`) and
-  `grok login`, then re-dispatch.
+- **`status: grok_unavailable` (exit 127):** `grok` isn't on PATH or isn't found. Install with
+  `npm i -g @xai-official/grok` and `grok login`, then re-dispatch.
 - **`status: failed`:** read `result.json`'s `stderrTail` and the tail of `eventsPath` for the cause.
   Common causes: an auth lapse, missing beta access, an invalid `--model`, or a sandbox that blocked
   something the task needed. Fix the cause and re-dispatch; don't paper over it by doing the work
