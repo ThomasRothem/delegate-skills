@@ -24,7 +24,8 @@
  * Antigravity owns its own permission policy. This helper does not pass
  * --dangerously-skip-permissions by default; opt into that flag only when the
  * human explicitly accepts it. Pass --sandbox to enable Antigravity's terminal
- * sandbox for the run.
+ * sandbox for the run. Combining both flags must be treated as full access because
+ * permission requests to act outside the sandbox may be auto-approved.
  *
  * Usage:
  *   node relay.mjs --brief <file> [options]
@@ -145,6 +146,9 @@ function readBrief(opts) {
     if (!existsSync(opts.brief)) fail(`brief file not found: ${opts.brief}`);
     return readFileSync(opts.brief, "utf8");
   }
+  if (process.stdin.isTTY) {
+    fail("no --brief given and stdin is a TTY; pass --brief <file> or pipe the brief on stdin");
+  }
   let stdin = "";
   try {
     stdin = readFileSync(0, "utf8");
@@ -160,9 +164,24 @@ function agyVersion() {
     const firstLine = out.split("\n").find(Boolean) || "";
     const match = firstLine.match(/^([^:\s]+):/);
     return match ? match[1] : firstLine || null;
-  } catch {
-    return null;
+  } catch (err) {
+    // Only a missing binary means "unavailable"; any other changelog failure
+    // (permissions, a broken subcommand) must not masquerade as exit 127.
+    if (err && err.code === "ENOENT") return null;
+    return "unknown";
   }
+}
+
+function parseDuration(duration) {
+  let milliseconds = 0;
+  let matched = false;
+  for (const match of duration.matchAll(/(\d+)h|(\d+)m|(\d+)s/g)) {
+    matched = true;
+    if (match[1]) milliseconds += Number(match[1]) * 60 * 60 * 1000;
+    if (match[2]) milliseconds += Number(match[2]) * 60 * 1000;
+    if (match[3]) milliseconds += Number(match[3]) * 1000;
+  }
+  return matched ? milliseconds : null;
 }
 
 function gitTouchedFiles(cwd) {
@@ -292,6 +311,7 @@ function reportUnavailable(writeResult, resultPath) {
 
 function dispatchToAgy(opts, brief, run, writeResult) {
   const argv = buildArgv(opts, brief, run);
+  const timeoutMs = parseDuration(opts.printTimeout) ?? parseDuration(DEFAULT_PRINT_TIMEOUT);
   // Antigravity's installer provides a native `agy` binary. Launch directly so
   // multi-line briefs and paths with spaces are passed as argv, not shell text.
   const child = spawn("agy", argv, {
@@ -302,6 +322,20 @@ function dispatchToAgy(opts, brief, run, writeResult) {
 
   let stdout = "";
   const stderrTail = [];
+  let settled = false;
+  let watchdogFired = false;
+  let sigkillTimer = null;
+  const watchdogTimer = setTimeout(() => {
+    watchdogFired = true;
+    child.once("exit", () => {
+      child.stdout.destroy();
+      child.stderr.destroy();
+    });
+    child.kill("SIGTERM");
+    sigkillTimer = setTimeout(() => {
+      if (!settled) child.kill("SIGKILL");
+    }, 10_000);
+  }, timeoutMs + 60_000);
 
   child.stdout.on("data", (chunk) => {
     stdout += chunk.toString();
@@ -318,6 +352,10 @@ function dispatchToAgy(opts, brief, run, writeResult) {
   });
 
   child.on("error", (err) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(watchdogTimer);
+    if (sigkillTimer) clearTimeout(sigkillTimer);
     const finalMessage = stdout.trim();
     if (finalMessage) writeFileSync(run.finalPath, finalMessage, "utf8");
     const result = writeResult({
@@ -332,6 +370,10 @@ function dispatchToAgy(opts, brief, run, writeResult) {
   });
 
   child.on("close", (code) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(watchdogTimer);
+    if (sigkillTimer) clearTimeout(sigkillTimer);
     const finalMessage = stdout.trim();
     if (finalMessage) writeFileSync(run.finalPath, finalMessage, "utf8");
     const result = writeResult({
@@ -340,6 +382,7 @@ function dispatchToAgy(opts, brief, run, writeResult) {
       finalMessage,
       touchedFiles: gitTouchedFiles(opts.cd),
       ...(code === 0 ? {} : { stderrTail: stderrTail.slice(-20) }),
+      ...(watchdogFired ? { error: `agy did not exit within --print-timeout ${opts.printTimeout} plus 60s grace; killed by the relay watchdog` } : {}),
     });
     printSummary(result, run.resultPath);
     process.exit(result.exitCode);

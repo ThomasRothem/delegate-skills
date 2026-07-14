@@ -112,7 +112,9 @@ diff holds:
 Antigravity owns its own permission policy. The relay does not bypass it by default. Use
 `--dangerously-skip-permissions` only when the human explicitly accepts that Antigravity may
 auto-approve tool permission requests. Use `--sandbox` when you want Antigravity's terminal sandbox
-enabled for the run.
+enabled for the run. Antigravity's own help says `--dangerously-skip-permissions` auto-approves all
+tool permission requests without prompting, including a request to act outside the sandbox. Do not
+treat `--sandbox` as an enforced boundary when the flags are combined; treat the run as full access.
 
 ## Authorization model
 
