@@ -104,7 +104,7 @@ function parseArgs(argv) {
       case "--model": opts.model = next(); break;
       case "--session": opts.session = next(); break;
       case "--resume-last": opts.resumeLast = true; break;
-      case "--add-dir": opts.addDirs.push(resolve(next())); break;
+      case "--add-dir": opts.addDirs.push(next()); break;
       case "--timeout": opts.timeout = next(); break;
       case "--out-dir": opts.outDir = resolve(next()); break;
       default:
@@ -113,6 +113,15 @@ function parseArgs(argv) {
   }
   if (opts.resumeLast && opts.session) {
     fail("--resume-last and --session are mutually exclusive; pass only one");
+  }
+  // kimi resolves a relative --add-dir against ITS cwd, so resolve against --cd
+  // (not the relay's own cwd) - and only after the loop, since --add-dir may
+  // appear before --cd on the command line. resolve() passes absolutes through.
+  opts.addDirs = opts.addDirs.map((dir) => resolve(opts.cd, dir));
+  // The watchdog is relay-only (kimi has no timeout flag), so a malformed
+  // --timeout must fail loudly here - a silent 30m fallback would be wrong.
+  if (parseDuration(opts.timeout) === null) {
+    fail(`--timeout "${opts.timeout}" is not a duration; use h/m/s strings like 30m, 90s, or 1h30m`);
   }
   return opts;
 }
@@ -155,15 +164,10 @@ function kimiVersion() {
 }
 
 function parseDuration(duration) {
-  let milliseconds = 0;
-  let matched = false;
-  for (const match of duration.matchAll(/(\d+)h|(\d+)m|(\d+)s/g)) {
-    matched = true;
-    if (match[1]) milliseconds += Number(match[1]) * 60 * 60 * 1000;
-    if (match[2]) milliseconds += Number(match[2]) * 60 * 1000;
-    if (match[3]) milliseconds += Number(match[3]) * 1000;
-  }
-  return matched ? milliseconds : null;
+  // Whole-string match: "1mtypo" must be rejected, not read as one minute.
+  const match = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/.exec(duration);
+  if (!match || (!match[1] && !match[2] && !match[3])) return null;
+  return (Number(match[1] || 0) * 3600 + Number(match[2] || 0) * 60 + Number(match[3] || 0)) * 1000;
 }
 
 function gitTouchedFiles(cwd) {
@@ -369,15 +373,19 @@ function dispatchToKimi(opts, brief, run, writeResult) {
     settled = true;
     clearTimeout(watchdogTimer);
     if (sigkillTimer) clearTimeout(sigkillTimer);
-    const exitCode = code ?? (constants.signals[signal] ? 128 + constants.signals[signal] : 1);
+    // A timed-out run is failed even if kimi handles SIGTERM by exiting 0 -
+    // orchestrators key off status and the relay exit code.
+    const succeeded = code === 0 && !watchdogFired;
+    const mapped = code ?? (constants.signals[signal] ? 128 + constants.signals[signal] : 1);
+    const exitCode = succeeded ? 0 : mapped === 0 ? 1 : mapped;
     const result = writeResult({
-      status: code === 0 ? "completed" : "failed",
+      status: succeeded ? "completed" : "failed",
       exitCode,
       signal: signal ?? null,
       sessionId,
       finalMessage: assembleFinal(),
       touchedFiles: gitTouchedFiles(opts.cd),
-      ...(code === 0 ? {} : { stderrTail: stderrTail.slice(-20) }),
+      ...(succeeded ? {} : { stderrTail: stderrTail.slice(-20) }),
       ...(watchdogFired ? { error: `kimi did not finish within --timeout ${opts.timeout}; killed by the relay watchdog` } : {}),
     });
     printSummary(result, run.resultPath);

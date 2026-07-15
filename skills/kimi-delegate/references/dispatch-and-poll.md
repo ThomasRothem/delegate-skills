@@ -44,7 +44,7 @@ Headless `-p` mode always uses Kimi's auto permission mode. Kimi rejects `--prom
 
 ## Artifacts and result fields
 
-Artifacts live outside the repo by default, keeping `touchedFiles` limited to implementer edits:
+Artifacts live outside the repo by default, so the relay itself never shows up in `touchedFiles`:
 
 - `brief.txt` - the exact brief.
 - `events.jsonl` - raw Kimi stdout events.
@@ -61,8 +61,10 @@ Artifacts live outside the repo by default, keeping `touchedFiles` limited to im
 - `briefPath`, `finalPath`, `eventsPath`, and `stderrPath`.
 - `finalMessage` - assistant `content` strings joined with `"\n\n"`; tool calls and tool results are
   excluded.
-- `touchedFiles` - `git status --porcelain` lines. `null` means git could not report; `[]` means git
-  ran and the tree is clean.
+- `touchedFiles` - `git status --porcelain` lines for the **final working tree**, not an attribution
+  of Kimi's edits: anything already dirty before dispatch shows up too. Dispatch from a clean tree
+  when you want the list to read as "what Kimi changed". `null` means git could not report; `[]`
+  means git ran and the tree is clean.
 - `stderrTail` - the last 20 non-empty stderr lines on failure.
 - `error` - present for launch failures or when the relay watchdog fires.
 
