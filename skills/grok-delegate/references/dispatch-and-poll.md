@@ -56,7 +56,8 @@ touched-files report shows only Grok's edits and nothing of the helper's own.
 - `schema` — the result-format version (currently `delegate-relay.result.v1`)
 - `tool` — `"grok"`
 - `status` — `completed` | `failed` | `grok_unavailable`
-- `exitCode` — mirrors Grok's exit code; `127` if `grok` isn't on PATH
+- `exitCode` — mirrors Grok's exit code; `128` plus the signal number if the child was killed; `127` if `grok` isn't on PATH
+- `signal` — the signal that killed the child, otherwise `null`
 - `grokVersion` — the binary that actually ran
 - `sessionId` — feed this to a later `--session <id>` (or use `--resume-last`)
 - `finalMessage` — Grok's own final report (the `<structured_output_contract>` you asked for), assembled from the streaming-json `text` events
@@ -90,6 +91,9 @@ process has exited and `result.json` is written — not when a status line says 
 
 - **`status: grok_unavailable` (exit 127):** `grok` isn't on PATH or isn't found. Install with
   `npm i -g @xai-official/grok` and `grok login`, then re-dispatch.
+- **`status: failed` with `signal: "SIGKILL"`:** the host ended the child — commonly the OOM killer
+  or a supervisor timeout, not an implementer error. Free up host memory or split the task into
+  smaller briefs, then re-dispatch.
 - **`status: failed`:** read `result.json`'s `stderrTail` and the tail of `eventsPath` for the cause.
   Common causes: an auth lapse, missing beta access, an invalid `--model`, or a sandbox that blocked
   something the task needed. Fix the cause and re-dispatch; don't paper over it by doing the work

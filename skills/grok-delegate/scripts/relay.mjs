@@ -62,7 +62,9 @@
  *
  * Exit codes: a pre-run usage error (bad/missing args, empty brief) exits 2
  * before any run and writes no result file; a missing `grok` binary exits 127;
- * otherwise the exit code mirrors Grok's own (0 success, non-zero failure).
+ * otherwise the exit code mirrors Grok's own (0 success, non-zero failure). If
+ * the child dies on a signal, the exit code is 128 plus the signal number and
+ * `result.json` records the signal.
  * Once the brief validates, `result.json` is written on every outcome —
  * completed, failed, or grok_unavailable. An orchestrator that polls for the
  * file must therefore also treat a non-zero exit with no file as a usage error.
@@ -71,7 +73,7 @@
 import { spawn, execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync, readFileSync, existsSync, appendFileSync } from "node:fs";
 import { join, resolve, basename } from "node:path";
-import { tmpdir } from "node:os";
+import { constants, tmpdir } from "node:os";
 
 const AUTONOMY_MODES = new Set(["workspace-write", "read-only", "full-access"]);
 
@@ -354,7 +356,7 @@ function makeResultWriter(opts, version, run) {
 }
 
 function reportUnavailable(writeResult, resultPath) {
-  const result = writeResult({ status: "grok_unavailable", exitCode: 127, sessionId: null, finalMessage: "", usage: null, touchedFiles: null });
+  const result = writeResult({ status: "grok_unavailable", exitCode: 127, signal: null, sessionId: null, finalMessage: "", usage: null, touchedFiles: null });
   printSummary(result, resultPath);
   process.stderr.write("relay: `grok` not found on PATH. Install it with `npm i -g @xai-official/grok` and run `grok login`.\n");
   process.exit(127);
@@ -414,6 +416,7 @@ function dispatchToGrok(opts, run, writeResult) {
     const result = writeResult({
       status: "failed",
       exitCode: 1,
+      signal: null,
       sessionId,
       finalMessage: assembleFinal(),
       usage,
@@ -424,13 +427,14 @@ function dispatchToGrok(opts, run, writeResult) {
     process.exit(1);
   });
 
-  child.on("close", (code) => {
+  child.on("close", (code, signal) => {
     if (settled) return;
     settled = true;
     const finalMessage = assembleFinal();
     const result = writeResult({
       status: code === 0 ? "completed" : "failed",
-      exitCode: code === null ? 1 : code,
+      exitCode: code ?? (constants.signals[signal] ? 128 + constants.signals[signal] : 1),
+      signal: signal ?? null,
       sessionId,
       finalMessage,
       usage,
@@ -462,7 +466,8 @@ function main() {
 function printSummary(result, resultPath) {
   const lines = [];
   lines.push("");
-  lines.push(`relay: ${result.status} (exit ${result.exitCode})  ·  grok ${result.grokVersion ?? "?"}`);
+  lines.push(`relay: ${result.status} (exit ${result.exitCode}${result.signal ? `, killed by ${result.signal}` : ""})  ·  grok ${result.grokVersion ?? "?"}`);
+  if (result.signal === "SIGKILL") lines.push("hint: the host killed the process (commonly the OOM killer or a supervisor timeout) — this is not a grok error; check host memory and re-dispatch, or split the task into smaller briefs.");
   lines.push(`autonomy: ${result.autonomy}`);
   if (result.resumeLast) lines.push("mode: resumed most recent session (--continue)");
   else if (result.sessionId && result.status !== "grok_unavailable") {
