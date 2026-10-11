@@ -48,6 +48,36 @@ if (versionProbe && process.env.SMOKE_MODE === "grok-spawn-error" && process.pla
   console.log(fakeVersion);
   process.exit(0);
 }
+// cursor stall-watchdog modes: emit Cursor-shaped stream-json, then misbehave or finish.
+//   cursor-stall      init, then silent forever without exiting (the observed live hang)
+//   cursor-slow-tool  a tool call that stays in flight longer than --stall-timeout, then completes
+//   cursor-steady     keeps emitting thinking deltas past --stall-timeout, then completes
+if (["cursor-stall", "cursor-slow-tool", "cursor-steady"].includes(process.env.SMOKE_MODE)) {
+  const emit = (event) => console.log(JSON.stringify({ session_id: "cursor-stall-session", ...event }));
+  const finish = () => {
+    emit({ type: "result", subtype: "success", is_error: false, result: "fake cursor finished" });
+    process.exit(0);
+  };
+  process.stdin.resume();
+  process.stdin.on("end", () => {
+    emit({ type: "system", subtype: "init", model: "fake", permissionMode: "default" });
+    const mode = process.env.SMOKE_MODE;
+    if (mode === "cursor-stall") {
+      emit({ type: "thinking", subtype: "completed" });
+      setInterval(() => {}, 1000);
+    } else if (mode === "cursor-slow-tool") {
+      emit({ type: "tool_call", subtype: "started", call_id: "tool-1" });
+      setTimeout(() => {
+        emit({ type: "tool_call", subtype: "completed", call_id: "tool-1" });
+        finish();
+      }, 2500);
+    } else {
+      const tick = setInterval(() => emit({ type: "thinking", subtype: "delta", text: "." }), 200);
+      setTimeout(() => { clearInterval(tick); finish(); }, 2500);
+    }
+  });
+  return;
+}
 if (process.env.SMOKE_MODE === "capture") {
   fs.writeFileSync(process.env.SMOKE_ARGS_FILE, JSON.stringify(args));
   if (process.env.SMOKE_ENV_FILE) fs.writeFileSync(process.env.SMOKE_ENV_FILE, JSON.stringify(capturedEnv()));

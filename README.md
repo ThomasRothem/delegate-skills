@@ -265,7 +265,9 @@ Per skill — platform, CLI version, and what the run exercised:
 - `cursor-delegate` — Windows, `cursor-agent` 2026.07.23-e383d2b: write run under `--force`; plan-mode
   `--read-only` touching nothing; `--session <id>` resume applying a delta brief; usage errors exiting
   2. A maintainer-run native macOS plan-mode smoke against the same version captured model, session,
-  and usage with no touched files.
+  and usage with no touched files. `--stall-timeout` is contract-tested; the live hang it targets was
+  observed on Linux with `cursor-agent` 2026.10.01-e373342 (two runs silent after `thinking`
+  `completed`, never exiting).
 - `grok-delegate` — macOS, `grok` 0.2.101: streaming-json report capture, file-based brief delivery,
   resume; read-only is best-effort by measurement, hence the violation flag.
   Contributor-run native Windows check with `grok` 1.0.13: a no-edit dispatch using
