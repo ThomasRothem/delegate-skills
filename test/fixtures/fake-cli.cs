@@ -117,6 +117,20 @@ class FakeCli {
       Console.WriteLine("{\"type\":\"agent_end\",\"messages\":[]}");
       return 0;
     }
+    if (mode == "muse-success" || mode == "muse-unfinished") {
+      var argsFile = Environment.GetEnvironmentVariable("SMOKE_ARGS_FILE");
+      if (!String.IsNullOrEmpty(argsFile)) File.WriteAllLines(argsFile, args);
+      Console.WriteLine("{\"payload_type\":\"session.run.linked\",\"stream\":{\"kind\":\"session\",\"id\":\"01a06628-aaaa-bbbb-cccc-ddddeeeeffff\"},\"payload\":{}}");
+      if (mode == "muse-success") {
+        Console.WriteLine("{\"payload_type\":\"run.terminal.completed\",\"payload\":{\"kind\":\"run_terminal\",\"terminal\":\"completed\",\"text\":\"fake muse completed\"}}");
+      }
+      return 0;
+    }
+    if (mode == "muse-stderr-flood") {
+      for (int i = 1; i <= 20000; i++) Console.Error.Write("diagnostic " + i + "\n");
+      Console.Error.Write("fatal: last diagnostic\n");
+      return 7;
+    }
     if (mode == "orphan-holds-stdio") {
       var logAt = Array.IndexOf(args, "--log-file");
       if (logAt >= 0) File.WriteAllText(args[logAt + 1], "fake agy log\n");

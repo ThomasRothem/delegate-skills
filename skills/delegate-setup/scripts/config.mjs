@@ -30,6 +30,7 @@ import {
   AGY_EFFORT,
   ALL_DIALS,
   CLAUDE_EFFORT,
+  MUSE_EFFORT,
   COPILOT_EFFORT,
   OMP_THINKING,
   CODEX_SANDBOX,
@@ -231,6 +232,9 @@ function validateDialValue(implementer, field, value, laneName, label) {
     if (implementer === "omp" && !OMP_THINKING.includes(value)) {
       return `${label}: lane ${laneName}.effort must be one of: ${OMP_THINKING.join(", ")}`;
     }
+    if (implementer === "muse" && !MUSE_EFFORT.includes(value)) {
+      return `${label}: lane ${laneName}.effort must be one of: ${MUSE_EFFORT.join(", ")}`;
+    }
     if (
       (implementer === "codex" || implementer === "grok" || implementer === "commandcode") &&
       !/^[a-z][a-z0-9-]*$/i.test(value)
@@ -285,12 +289,15 @@ function validateModelOrProvider(implementer, field, value, laneName, label) {
   } else if (implementer === "opencode") {
     // opencode 2.x carries the variant inside the model value as provider/model#variant.
     pattern = MODEL_TOKEN.opencode;
-    hint = "letters, digits, . _ : / # -";
+    hint = "letters, digits, . _ : @ ~ / # -";
   } else if (
     implementer === "grok" ||
     implementer === "pi" ||
     implementer === "omp" ||
     implementer === "commandcode" ||
+    // muse's relay token-validates --model the same shell-safe way (flag-injection
+    // defense; its launch uses no shell on any platform).
+    implementer === "muse" ||
     // codex (and any other win32 shell:true relay) must not accept cmd metacharacters in -m.
     implementer === "codex" ||
     IMPLEMENTER_BY_KEY[implementer]?.winShell
