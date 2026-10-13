@@ -54,7 +54,7 @@
  * completed, failed, timeout, aborted, or muse_unavailable.
  */
 
-import {spawn, execFileSync, spawnSync } from "node:child_process";
+import {spawn, execFile, execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync, renameSync, readFileSync, existsSync, appendFileSync, rmSync, openSync, fstatSync, readSync, closeSync } from "node:fs";
 import {join, resolve, basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -284,18 +284,61 @@ function versionProbeTimeout(opts) {
   return timeoutMs === null ? VERSION_PROBE_TIMEOUT_MS : Math.min(timeoutMs, VERSION_PROBE_TIMEOUT_MS);
 }
 
-function museVersion(probeTimeoutMs) {
-  try {
-    const version = execFileSync("muse", ["--version"], {
+function museVersion(opts, run, probeTimeoutMs) {
+  return new Promise((resolveProbe) => {
+    let child;
+    let aborted = false;
+    const writeResult = makeResultWriter(opts, null, run);
+    const handlers = new Map(["SIGTERM", "SIGINT", "SIGHUP"].map((signal) => [signal, () => {
+      if (aborted) return;
+      aborted = true;
+      const result = writeResult({
+        status: "aborted",
+        exitCode: 128 + constants.signals[signal],
+        signal,
+        sessionId: null,
+        finalMessage: "",
+        touchedFiles: gitTouchedFiles(opts.cd),
+        stderrTail: [],
+        error: `the relay was killed by ${signal} during muse --version preflight; Muse was not dispatched`,
+      });
+      printSummary(result, run.resultPath);
+      killChild(child);
+      setTimeout(() => {
+        killChild(child, "SIGKILL");
+        process.exit(result.exitCode);
+      }, 2000);
+    }]));
+    for (const [signal, handler] of handlers) process.on(signal, handler);
+    child = execFile("muse", ["--version"], {
       encoding: "utf8",
       timeout: probeTimeoutMs,
       killSignal: "SIGKILL",
-    }).trim();
-    return { version: version || "unknown", error: null };
-  } catch (error) {
-    if (error?.code === "ENOENT") return { version: null, error: null };
-    return { version: null, error };
-  }
+      detached: process.platform !== "win32",
+    }, (error, stdout, stderr) => {
+      if (aborted) return;
+      for (const [signal, handler] of handlers) process.removeListener(signal, handler);
+      killChild(child, "SIGKILL");
+      if (error?.code === "ENOENT") return resolveProbe({ version: null, error: null });
+      if (error) {
+        const timedOut = error.killed && error.signal === "SIGKILL";
+        return resolveProbe({ version: null, error: {
+          code: timedOut ? "ETIMEDOUT" : error.code,
+          status: Number.isInteger(error.code) ? error.code : null,
+          stderr,
+        } });
+      }
+      resolveProbe({ version: stdout.trim() || "unknown", error: null });
+    });
+    // Version probes can inherit pipes into descendants, just like a dispatch.
+    child.once("exit", () => {
+      const drain = setTimeout(() => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+      }, 500);
+      drain.unref();
+    });
+  });
 }
 
 function timestamp() {
@@ -595,7 +638,7 @@ function dispatchToMuse(opts, run, writeResult) {
   });
 }
 
-function main() {
+async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const brief = readBrief(opts);
   if (!brief.trim()) fail("empty brief (pass --brief <file> or pipe the brief on stdin)");
@@ -605,7 +648,7 @@ function main() {
 
   const run = prepareRunDir(opts, brief);
   const probeTimeoutMs = versionProbeTimeout(opts);
-  const probe = museVersion(probeTimeoutMs);
+  const probe = await museVersion(opts, run, probeTimeoutMs);
   const writeResult = makeResultWriter(opts, probe.version, run);
 
   if (!probe.version && !probe.error) {

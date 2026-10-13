@@ -22,9 +22,9 @@ You are the **orchestrator**. This skill lets you hand a bounded coding task to 
 the brief and own the judgment; Muse does the typing in its own `exec` run; you verify and commit.
 
 Nothing here is specific to one orchestrating agent. The loop needs only the ability to run a shell
-command and read a file, so any agent with those two capabilities can drive it. (It is designed for
-and run on Muse Code itself as the orchestrator; treat other orchestrators as designed-for, not
-yet proven.)
+command and read a file, so any agent with those two capabilities can drive it. The full delegate →
+review → commit loop has been run with Claude Code as the orchestrator. Other orchestrators remain
+unproven.
 
 ## When NOT to use this
 

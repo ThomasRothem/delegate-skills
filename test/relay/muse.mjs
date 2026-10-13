@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { constants } from "node:os";
 
 function capturedArgs(h, argsFile) {
   if (!existsSync(argsFile)) return [];
@@ -144,6 +145,41 @@ for (const [mode, expectedStatus, expectedExit] of [
     value.status === expectedStatus &&
     value.error?.includes("version preflight") &&
     value.error?.includes("was not dispatched"));
+}
+if (!h.WIN) {
+  for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) {
+    const outDir = join(h.scratch, `out-preflight-abort-muse-${signal}`);
+    const pidFile = join(h.scratch, `pid-preflight-abort-muse-${signal}`);
+    const argsFile = join(h.scratch, `args-preflight-abort-muse-${signal}`);
+    const workDir = h.freshRepo(`work-preflight-abort-muse-${signal}`);
+    const child = h.runRelay("muse", workDir, outDir, [], {
+      SMOKE_MODE: "muse-version-hang",
+      SMOKE_PREFLIGHT_PID_FILE: pidFile,
+      SMOKE_ARGS_FILE: argsFile,
+    });
+    child.stderr.resume();
+    const closed = new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(null), 12_000);
+      child.once("close", (code) => {
+        clearTimeout(timer);
+        resolve(code);
+      });
+    });
+    h.check(`muse preflight ${signal}: version probe started`,
+      await h.until(() => existsSync(pidFile), 5000));
+    const probePid = existsSync(pidFile) ? Number(readFileSync(pidFile, "utf8")) : null;
+    child.kill(signal);
+    const exitCode = await closed;
+    const value = existsSync(join(outDir, "result.json")) ? h.result(outDir) : {};
+    h.check(`muse preflight ${signal}: cancellation publishes an aborted result`,
+      exitCode === 128 + constants.signals[signal] && value.exitCode === exitCode &&
+      value.status === "aborted" && value.signal === signal &&
+      value.museVersion === null && value.sessionId === null && !existsSync(argsFile));
+    h.check(`muse preflight ${signal}: version probe is terminated`,
+      probePid !== null && await h.until(() => !h.alive(probePid), 5000));
+    if (probePid !== null && h.alive(probePid)) process.kill(probePid, "SIGKILL");
+    if (exitCode === null) child.kill("SIGKILL");
+  }
 }
 {
   const workDir = h.freshRepo("work-unavailable-muse");

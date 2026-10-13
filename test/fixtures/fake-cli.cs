@@ -109,6 +109,11 @@ class FakeCli {
       }
       return 0;
     }
+    if (mode == "muse-stderr-flood") {
+      for (int i = 1; i <= 20000; i++) Console.Error.Write("diagnostic " + i + "\n");
+      Console.Error.Write("fatal: last diagnostic\n");
+      return 7;
+    }
     if (mode == "orphan-holds-stdio") {
       var logAt = Array.IndexOf(args, "--log-file");
       if (logAt >= 0) File.WriteAllText(args[logAt + 1], "fake agy log\n");

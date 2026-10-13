@@ -13,6 +13,31 @@ export function runDelegateSetup(h) {
   const help = spawnSync(process.execPath, [join(setupDir, "discover.mjs"), "--help"], { encoding: "utf8" });
   h.check("discover --help exits 0", help.status === 0 && /discover\.mjs/.test(help.stdout));
 
+  const museHome = join(h.scratch, "discover-muse-home");
+  const museDefaultRoot = join(museHome, ".local", "share");
+  const museCustomRoot = join(h.scratch, "discover-muse-custom");
+  mkdirSync(join(museDefaultRoot, "muse", "sessions", "2020", "01", "01", "legacy"), { recursive: true });
+  for (const session of ["current-one", "current-two"]) {
+    mkdirSync(join(museCustomRoot, "muse", "sessions", "2026", "10", "13", session), { recursive: true });
+  }
+  for (const [label, xdgRoot, expectedSessions] of [
+    ["default", "", 1],
+    ["explicit default", museDefaultRoot, 1],
+    ["custom", museCustomRoot, 2],
+    ["missing custom", join(h.scratch, "missing-muse-store"), null],
+  ]) {
+    const usageRun = spawnSync(process.execPath, [join(setupDir, "discover.mjs"), "--usage"], {
+      encoding: "utf8",
+      env: { ...h.baseEnv,
+        HOME: museHome, USERPROFILE: museHome, XDG_DATA_HOME: xdgRoot },
+    });
+    const usage = usageRun.status === 0
+      ? JSON.parse(usageRun.stdout).discovered.find(({ key }) => key === "muse")?.usage
+      : undefined;
+    h.check(`Muse usage uses the ${label} XDG store`,
+      expectedSessions === null ? usage === null : usage?.sessions === expectedSessions && typeof usage.lastUsed === "string");
+  }
+
   const discover = spawnSync(process.execPath, [join(setupDir, "discover.mjs")], {
     encoding: "utf8",
     timeout: 120_000,

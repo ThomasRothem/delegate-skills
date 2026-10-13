@@ -35,6 +35,7 @@
  *     | { static: readonly string[] },
  *   usageProbe: null | {
  *     envDir?: string,
+ *     envSubdir?: string,
  *     homeSubdir: string,
  *     path: readonly string[],
  *     entry: "file"|"dir"|"any",
@@ -216,9 +217,11 @@ export const IMPLEMENTERS = Object.freeze([
     authProbe: null,
     modelProbe: null,
     // sessions/<yyyy>/<mm>/<dd>/<id>/ — one directory per session; session.jsonl
-    // inside is conversation content and is never opened. Default XDG root only:
-    // a custom XDG_DATA_HOME store reports unknown rather than guessing.
+    // inside is conversation content and is never opened. XDG_DATA_HOME selects
+    // the store root; an absent store reports unknown, never legacy usage.
     usageProbe: {
+      envDir: "XDG_DATA_HOME",
+      envSubdir: "muse",
       homeSubdir: ".local/share/muse",
       path: ["sessions", "*", "*", "*"],
       entry: "dir",
