@@ -20,6 +20,7 @@ function sandbox(keys = ['agy', 'codex']) {
   s.common = { codexHome: s.codexHome, skillsDir: s.skills, homeDir: s.home };
   s.config = join(s.codexHome, 'config.toml'); s.registry = join(s.codexHome, 'codex-background', 'registry.json');
   s.boot = (extra = {}) => { const plan = planBootstrap({ ...s.common, ...extra }); return { plan, applied: applyBootstrap(plan) }; };
+  s.plan = (extra = {}) => planBootstrap({ ...s.common, platform: 'linux', exists: path => path === '/usr/bin/cc' || path === '/proc' || existsSync(path), ...extra });
   s.cli = async args => { const out = [], err = []; const code = await run(['--codex-home', s.codexHome, '--skills-dir', s.skills, ...args], { homeDir: s.home, out: l => out.push(l), err: l => err.push(l) }); return { code, out: out.join('\n'), err: err.join('\n') }; };
   s.backups = () => existsSync(s.codexHome) ? readdirSync(s.codexHome).filter(f => f.includes('.bak-')) : [];
   return s;
@@ -233,6 +234,44 @@ test('nested workspace roots collapse and defaults include the home directory', 
   mkdirSync(join(s.codexHome, 'worktrees'), { recursive: true });
   assert.deepEqual(planBootstrap(s.common).registry.registry.workspaceRoots, [s.home.replaceAll('\\', '/'), join(s.codexHome, 'worktrees').replaceAll('\\', '/')]);
   assert.throws(() => planBootstrap({ ...s.common, workspaceRoots: [join(s.root, 'missing')] }), /not an existing directory/);
+});
+
+test('an empty final code_mode table keeps the namespace outside the MCP environment', () => {
+  for (const ending of ['', '\n', '\r\n']) {
+    const result = edit('[features.code_mode]' + ending).text;
+    const managed = readManaged(result);
+    assert.deepEqual(managed.namespaces, ['mcp__codex_background']);
+    assert.equal(Object.hasOwn(managed.envValues, 'direct_only_tool_namespaces'), false);
+    assert.equal(edit(result).text, result);
+  }
+});
+
+test('unavailable configured workspace roots require an explicit replacement', () => {
+  for (const remaining of [false, true]) {
+    const s = sandbox();
+    const initial = s.plan({ workspaceRoots: [s.ws] });
+    applyBootstrap(initial);
+    const registry = JSON.parse(readFileSync(s.registry, 'utf8'));
+    registry.workspaceRoots = [join(s.root, 'unmounted-project'), ...(remaining ? [s.ws] : [])];
+    writeFileSync(s.registry, JSON.stringify(registry));
+    const before = readFileSync(s.registry, 'utf8');
+    assert.throws(() => s.plan(), /workspace roots.*--workspace-root/i);
+    assert.equal(readFileSync(s.registry, 'utf8'), before);
+    assert.deepEqual(s.plan({ workspaceRoots: [s.ws] }).registry.registry.workspaceRoots, [s.ws.replaceAll('\\', '/')]);
+  }
+});
+
+test('host timeout minimum permits a positive relay budget', () => {
+  const s = sandbox();
+  assert.throws(() => s.plan({ hostTimeout: 31 }), /between 32/);
+  const initial = s.plan({ hostTimeout: 32, workspaceRoots: [s.ws] });
+  assert.equal(initial.registry.registry.hostToolTimeoutSeconds, 32);
+  applyBootstrap(initial);
+  const registry = JSON.parse(readFileSync(s.registry, 'utf8'));
+  registry.hostToolTimeoutSeconds = 31;
+  writeFileSync(s.registry, JSON.stringify(registry));
+  assert.throws(() => s.plan(), /host timeout.*--host-timeout/i);
+  assert.equal(s.plan({ hostTimeout: 32 }).registry.registry.hostToolTimeoutSeconds, 32);
 });
 
 test('an unparsable or foreign registry is backed up before replacement', () => {

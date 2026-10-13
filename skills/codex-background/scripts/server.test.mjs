@@ -47,8 +47,8 @@ if (spec.mode === 'stuck') {
   await delay(spec.delayMs ?? 100); clearInterval(noise); result(spec.code ?? 0);
 }
 `;
-function setup() {
-  const root = mkdtempSync(join(tmpdir(), 'codex-background-'));
+function setup(suffix = '') {
+  const root = mkdtempSync(join(tmpdir(), `codex-background-${suffix}`));
   const workspace = join(root, 'work'), artifacts = join(root, 'artifacts'), state = join(artifacts, 'state');
   mkdirSync(workspace); mkdirSync(artifacts);
   const relays = {};
@@ -94,6 +94,42 @@ function alive(pid) {
   try { return !/\)\s+Z\s/.test(readFileSync('/proc/' + pid + '/stat', 'utf8')); } catch { return true; }
 }
 async function clean(s, c) { await c.close(); rmSync(s.root, { recursive: true, force: true }); }
+
+test('Windows ownership preserves UTF-8 launch paths and relay arguments', { skip: process.platform !== 'win32', timeout: 15000 }, async () => {
+  const s = setup('café مرحبا 漢字-'), c = client(s);
+  try {
+    const native = ['--label', 'résumé مرحبا 漢字'];
+    const response = await c.run('unicode', {}, { relayArgs: native }).promise;
+    const value = outcome(response);
+    assert.equal(value.adapterStatus, 'completed');
+    assert.equal(response.result.isError, false);
+    const received = JSON.parse(readFileSync(join(value.outputDirectory, 'received.json'), 'utf8'));
+    assert.deepEqual(received.slice(0, native.length), native);
+    assert.equal(received[received.indexOf('--cd') + 1], s.workspace);
+    assert.equal(received[received.indexOf('--out-dir') + 1], value.outputDirectory);
+  } finally { await clean(s, c); }
+});
+
+test('host tool timeout requires a dispatchable integer budget', { skip: !['linux', 'win32'].includes(process.platform), timeout: 10000 }, async () => {
+  const s = setup();
+  s.registry.hostToolTimeoutSeconds = 31;
+  writeFileSync(s.registryFile, JSON.stringify(s.registry));
+  const rejected = spawn(process.execPath, [SERVER], { env: { ...process.env, CODEX_BACKGROUND_REGISTRY: s.registryFile }, stdio: ['ignore', 'pipe', 'pipe'] });
+  let stderr = '';
+  rejected.stderr.on('data', chunk => { stderr += chunk; });
+  const code = await new Promise(resolve => rejected.once('close', resolve));
+  assert.equal(code, 1);
+  assert.match(stderr, /Invalid host tool timeout/);
+  s.registry.hostToolTimeoutSeconds = 32;
+  writeFileSync(s.registryFile, JSON.stringify(s.registry));
+  const c = client(s);
+  try {
+    const listed = await c.request('tools/list', {}).promise;
+    const timeout = listed.result.tools.find(tool => tool.name === 'delegate_run').inputSchema.properties.relayTimeoutSeconds;
+    assert.equal(timeout.minimum, 1);
+    assert.equal(timeout.maximum, 1);
+  } finally { await clean(s, c); }
+});
 
 test('one pending MCP invocation stays quiet for more than sixty seconds', { timeout: 85000 }, async t => {
   const s = setup(), c = client(s);

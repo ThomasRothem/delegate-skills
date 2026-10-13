@@ -38,7 +38,7 @@ a second run with nothing to change writes nothing, creates no backup and report
 | `--codex-home <dir>` | Codex home to configure |
 | `--skills-dir <dir>` | installed skills directory to scan (default: the parent of this skill's directory) |
 | `--workspace-root <dir>` | approved workspace root; repeatable. Default: the home directory plus `<codex-home>/worktrees` when it exists. Roots nested inside another are dropped |
-| `--host-timeout <s>` | host tool timeout in seconds, 31 or more (default 7200). Also written to `tool_timeout_sec` |
+| `--host-timeout <s>` | host tool timeout in seconds, 32 or more (default 7200). Also written to `tool_timeout_sec` |
 | `--dry-run` | print the planned changes, write nothing |
 | `--check` | validate only, write nothing (see below) |
 | `--json` | machine-readable summary instead of text |

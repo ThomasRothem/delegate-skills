@@ -43,7 +43,7 @@ function readRegistry(file) {
   onlyKeys(registry, ['schema', 'hostToolTimeoutSeconds', 'stateDirectory', 'workspaceRoots', 'artifactRoots', 'relays']);
   if (registry.schema !== 'codex-background.registry.v1') throw Error('Unsupported registry schema');
   const budgetMs = registry.hostToolTimeoutSeconds * 1000;
-  if (!Number.isInteger(registry.hostToolTimeoutSeconds) || budgetMs <= DELIVERY_MARGIN_MS || budgetMs > MAX_TIMER_MS) throw Error('Invalid host tool timeout');
+  if (!Number.isInteger(registry.hostToolTimeoutSeconds) || budgetMs <= DELIVERY_MARGIN_MS + 1000 || budgetMs > MAX_TIMER_MS) throw Error('Invalid host tool timeout');
   const workspaceRoots = directories(registry.workspaceRoots);
   const artifactRoots = directories(registry.artifactRoots);
   const stateDirectory = futurePath(registry.stateDirectory);

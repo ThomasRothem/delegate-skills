@@ -17,6 +17,7 @@ const BEGIN = '# BEGIN codex-background (managed by codex-background bootstrap; 
 const END = '# END codex-background';
 const OWNED = { [MCP.join('.')]: ['command', 'args', 'tool_timeout_sec', 'required'], [MCP_ENV.join('.')]: ['CODEX_BACKGROUND_REGISTRY'] };
 const DEFAULT_TIMEOUT = 7200;
+const MIN_HOST_TIMEOUT = 32;
 const MAX_TIMEOUT = 2147483;
 const HERE = dirname(realpathSync(fileURLToPath(import.meta.url)));
 const USAGE = `Usage: node bootstrap.mjs [options]
@@ -250,7 +251,8 @@ export function editConfigToml(text, { command, serverPath, timeoutSeconds, regi
   else if (owned.length) owned.forEach(({ i }, n) => edits.push({ ...sectionRange(entries, i), text: n ? '' : blockText }));
   else edits.push({ start: text.length, end: text.length, text: (text && !text.endsWith('\n') ? eol : '') + (text.trim() ? eol : '') + blockText });
 
-  edits.sort((a, b) => b.start - a.start || (b.end - b.start) - (a.end - a.start));
+  // Reverse equal-offset insertions so their text appears in the requested order.
+  edits.reverse().sort((a, b) => b.start - a.start || (b.end - b.start) - (a.end - a.start));
   let result = text;
   for (const edit of edits) result = result.slice(0, edit.start) + edit.text + result.slice(edit.end);
   if (!result.endsWith('\n')) result += eol;
@@ -302,7 +304,7 @@ export function planBootstrap(opts = {}) {
   if (problem) throw Error(problem);
   const { relays, skipped } = scanRelays(p.skillsDir);
   if (!Object.keys(relays).length) throw Error(`No *-delegate skills with scripts/relay.mjs found in ${p.skillsDir}. Install at least one (for example: npx skills add amElnagdy/delegate-skills --skill codex-delegate) and re-run bootstrap.`);
-  if (opts.hostTimeout !== undefined && !(Number.isInteger(opts.hostTimeout) && opts.hostTimeout > 30 && opts.hostTimeout <= MAX_TIMEOUT)) throw new UsageError(`--host-timeout must be an integer between 31 and ${MAX_TIMEOUT}`);
+  if (opts.hostTimeout !== undefined && !(Number.isInteger(opts.hostTimeout) && opts.hostTimeout >= MIN_HOST_TIMEOUT && opts.hostTimeout <= MAX_TIMEOUT)) throw new UsageError(`--host-timeout must be an integer between ${MIN_HOST_TIMEOUT} and ${MAX_TIMEOUT}`);
 
   const stateDirectory = fwd(join(p.base, 'state')), artifactRoot = fwd(p.base);
   let existing = null, foreign = null;
@@ -313,14 +315,18 @@ export function planBootstrap(opts = {}) {
     else if (existing && !(typeof existing.stateDirectory === 'string' && pathKey(existing.stateDirectory) === pathKey(stateDirectory) && Array.isArray(existing.artifactRoots) && existing.artifactRoots.length === 1 && typeof existing.artifactRoots[0] === 'string' && pathKey(existing.artifactRoots[0]) === pathKey(artifactRoot))) foreign = 'was not produced by bootstrap (different state or artifact roots)';
     if (foreign) existing = null;
   }
-  const kept = existing && Array.isArray(existing.workspaceRoots) ? existing.workspaceRoots.filter(r => typeof r === 'string' && isAbsolute(r) && isDirectory(r)) : [];
-  const keptTimeout = existing && Number.isInteger(existing.hostToolTimeoutSeconds) && existing.hostToolTimeoutSeconds > 30 && existing.hostToolTimeoutSeconds <= MAX_TIMEOUT ? existing.hostToolTimeoutSeconds : undefined;
+  const kept = existing && Array.isArray(existing.workspaceRoots) ? existing.workspaceRoots : [];
+  const keptTimeout = existing && Number.isInteger(existing.hostToolTimeoutSeconds) && existing.hostToolTimeoutSeconds >= MIN_HOST_TIMEOUT && existing.hostToolTimeoutSeconds <= MAX_TIMEOUT ? existing.hostToolTimeoutSeconds : undefined;
+  if (existing && opts.hostTimeout === undefined && keptTimeout === undefined) throw Error(`Configured host timeout is invalid; pass --host-timeout between ${MIN_HOST_TIMEOUT} and ${MAX_TIMEOUT} explicitly`);
   const timeout = opts.hostTimeout ?? keptTimeout ?? DEFAULT_TIMEOUT;
   let roots;
   if (opts.workspaceRoots?.length) {
     roots = opts.workspaceRoots.map(r => resolve(r));
     for (const root of roots) if (!isDirectory(root)) throw Error(`Workspace root is not an existing directory: ${root}`);
-  } else if (kept.length) roots = kept;
+  } else if (existing) {
+    if (!kept.length || kept.some(r => typeof r !== 'string' || !isAbsolute(r) || !isDirectory(r))) throw Error('Configured workspace roots are unavailable or invalid; restore them or pass --workspace-root explicitly');
+    roots = kept;
+  }
   else {
     if (!isDirectory(p.home)) throw Error(`Home directory is not an existing directory: ${p.home}`);
     roots = [p.home, ...(isDirectory(join(p.codexHome, 'worktrees')) ? [join(p.codexHome, 'worktrees')] : [])];
