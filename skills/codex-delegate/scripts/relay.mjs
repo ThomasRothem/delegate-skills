@@ -31,6 +31,16 @@
  *   --effort <level>        Reasoning effort, passed to Codex as
  *                           `-c model_reasoning_effort=<level>` (default: Codex's
  *                           own configured default).
+ *   --subagent-model <name> Default model for subagents Codex spawns during the run,
+ *                           passed as `-c agents.default_subagent_model=<name>`.
+ *   --subagent-effort <level>
+ *                           Default reasoning effort for those subagents, passed as
+ *                           `-c agents.default_subagent_reasoning_effort=<level>`.
+ *                           Without either, subagents follow Codex's own config. A model
+ *                           TOML reads as a number (e.g. 5.5) fails at startup; an
+ *                           unknown model or unsupported effort fails only the spawn, so
+ *                           the run can still exit 0. Pass them again on every resume:
+ *                           Codex does not carry them over.
  *   --web-search <mode>     Codex's web search mode, passed as `-c web_search=<mode>`
  *                           (Codex's modes: disabled | cached | indexed | live; default:
  *                           Codex's own configured default). Search is a hosted tool, so
@@ -167,6 +177,8 @@ function parseArgs(argv) {
     cd: process.cwd(),
     model: null,
     effort: null,
+    subagentModel: null,
+    subagentEffort: null,
     webSearch: null,
     networkAccess: false,
     sandbox: "workspace-write",
@@ -199,6 +211,8 @@ function parseArgs(argv) {
       case "--lane": opts.lane = next(); break;
       case "--model": opts.model = next(); flagged.add("model"); break;
       case "--effort": opts.effort = next(); flagged.add("effort"); break;
+      case "--subagent-model": opts.subagentModel = next(); break;
+      case "--subagent-effort": opts.subagentEffort = next(); break;
       case "--web-search": opts.webSearch = next(); break;
       case "--network-access": opts.networkAccess = true; break;
       case "--sandbox": opts.sandbox = next(); opts.sandboxConfigured = true; flagged.add("sandbox"); break;
@@ -237,6 +251,12 @@ function parseArgs(argv) {
   }
   if (opts.model !== null && !SAFE_MODEL.test(opts.model)) {
     fail("--model contains unsupported characters (allowed: letters, digits, . _ : / -)");
+  }
+  if (opts.subagentModel !== null && !SAFE_MODEL.test(opts.subagentModel)) {
+    fail("--subagent-model contains unsupported characters (allowed: letters, digits, . _ : / -)");
+  }
+  if (opts.subagentEffort !== null && !BARE_TOKEN.test(opts.subagentEffort)) {
+    fail(`invalid --subagent-effort "${opts.subagentEffort}" (expected a non-empty bare token)`);
   }
   if (opts.keepEnv.length && !opts.cleanEnv) {
     fail("--keep-env requires --clean-env");
@@ -437,10 +457,12 @@ function buildArgv(opts, finalPath) {
     argv.push("-s", opts.sandbox);
   }
   if (opts.model) argv.push("-m", opts.model);
-  // `-c` is accepted by the resume subcommand, so the effort, web search and network overrides
+  // `-c` is accepted by the resume subcommand, so the effort, subagent, web search and network overrides
   // apply to fresh and resumed runs alike. Keep every `-c` after `resume`: once one
   // follows it, Codex drops any placed before it.
   if (opts.effort !== null) argv.push("-c", `model_reasoning_effort=${opts.effort}`);
+  if (opts.subagentModel !== null) argv.push("-c", `agents.default_subagent_model=${opts.subagentModel}`);
+  if (opts.subagentEffort !== null) argv.push("-c", `agents.default_subagent_reasoning_effort=${opts.subagentEffort}`);
   if (opts.webSearch !== null) argv.push("-c", `web_search=${opts.webSearch}`);
   if (opts.networkAccess) argv.push("-c", "sandbox_workspace_write.network_access=true");
   if (opts.skipGitRepoCheck) argv.push("--skip-git-repo-check");
@@ -503,6 +525,8 @@ function makeResultWriter(opts, version, run) {
       sandbox: !resuming || opts.sandboxConfigured ? opts.sandbox : "(Codex config on resume)",
       model: opts.model,
       effort: opts.effort,
+      subagentModel: opts.subagentModel,
+      subagentEffort: opts.subagentEffort,
       webSearch: opts.webSearch,
       networkAccess: opts.networkAccess,
       resumeLast: opts.resumeLast,
@@ -601,8 +625,8 @@ function dispatchToCodex(opts, brief, run, writeResult, env) {
   const argv = buildArgv(opts, run.finalPath);
   // shell:true on Windows so the codex.cmd shim resolves (see codexVersion). Safe:
   // the brief is fed via child.stdin below — never argv — and argv holds only
-  // sandbox enums, model names, pattern-checked effort and web search modes,
-  // the fixed network override, and file paths.
+  // sandbox enums, model names (including subagents), pattern-checked efforts
+  // and web search modes, the fixed network override, and file paths.
   // detached on POSIX: the child leads a new process group so killChild can fell the whole tree
   const child = spawnShellLaunch("codex", argv, { cwd: opts.cd, stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32", env }, process.platform === "win32");
 
