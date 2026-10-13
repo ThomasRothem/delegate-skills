@@ -71,6 +71,7 @@ node "<skill-dir>/scripts/relay.mjs" --brief brief.txt --cd /path/to/repo
 # resume the most recent session:                      add --resume-last  (delta brief only)
 # resume a specific session:                           add --session <id> (delta brief only)
 # hard time limit (watchdog):                          add --timeout 2h  (the 30m default suits short runs; implementation briefs routinely need 1-2h)
+# kill a live-but-silent run early (opt-in):           add --stall-timeout 10m  (status "stalled"; clock pauses during tool calls)
 # see all options:                                     node .../relay.mjs --help
 ```
 
