@@ -31,6 +31,11 @@
  *   --effort <level>        Reasoning effort, passed to Codex as
  *                           `-c model_reasoning_effort=<level>` (default: Codex's
  *                           own configured default).
+ *   --network-access        Allow network access inside the workspace-write sandbox, passed
+ *                           to Codex as `-c sandbox_workspace_write.network_access=true`.
+ *                           Pass it again on every resume, with the sandbox named by
+ *                           --sandbox or a fleet lane: Codex does not carry it over.
+ *                           Rejected with a read-only sandbox, which Codex keeps offline.
  *   --sandbox <mode>        read-only | workspace-write | danger-full-access
  *                           (default: workspace-write).
  *   --read-only             Shortcut for --sandbox read-only (review/diagnosis, no edits).
@@ -154,6 +159,7 @@ function parseArgs(argv) {
     cd: process.cwd(),
     model: null,
     effort: null,
+    networkAccess: false,
     sandbox: "workspace-write",
     sandboxConfigured: false,
     resumeLast: false,
@@ -184,6 +190,7 @@ function parseArgs(argv) {
       case "--lane": opts.lane = next(); break;
       case "--model": opts.model = next(); flagged.add("model"); break;
       case "--effort": opts.effort = next(); flagged.add("effort"); break;
+      case "--network-access": opts.networkAccess = true; break;
       case "--sandbox": opts.sandbox = next(); opts.sandboxConfigured = true; flagged.add("sandbox"); break;
       case "--read-only": opts.sandbox = "read-only"; opts.sandboxConfigured = true; flagged.add("sandbox"); flagged.add("readOnly"); break;
       case "--resume-last": opts.resumeLast = true; break;
@@ -201,6 +208,16 @@ function parseArgs(argv) {
   applyFleetLane(opts, flagged);
   if (!SANDBOX_MODES.has(opts.sandbox)) {
     fail(`invalid --sandbox "${opts.sandbox}" (expected: ${[...SANDBOX_MODES].join(", ")})`);
+  }
+  // Codex ignores the workspace-write network key under read-only and the run stays
+  // offline without a word, so refuse the pair rather than record access that never happened.
+  if (opts.networkAccess && opts.sandbox === "read-only") {
+    fail("--network-access cannot be combined with a read-only sandbox: Codex keeps read-only offline");
+  }
+  // An unqualified resume runs under Codex's configured sandbox, which may be read-only
+  // and drop the override without a word; require the sandbox named so the record holds.
+  if (opts.networkAccess && (opts.session || opts.resumeLast) && !opts.sandboxConfigured) {
+    fail("--network-access on a resumed run needs the sandbox named by --sandbox (e.g. --sandbox workspace-write) or a fleet lane");
   }
   if (opts.effort !== null && !/^[a-z][a-z0-9-]*$/i.test(opts.effort)) {
     fail(`invalid --effort "${opts.effort}" (expected a non-empty bare token)`);
@@ -407,9 +424,11 @@ function buildArgv(opts, finalPath) {
     argv.push("-s", opts.sandbox);
   }
   if (opts.model) argv.push("-m", opts.model);
-  // `-c` is accepted by the resume subcommand, so the effort override applies to
-  // fresh and resumed runs alike.
+  // `-c` is accepted by the resume subcommand, so the effort and network overrides
+  // apply to fresh and resumed runs alike. Keep every `-c` after `resume`: once one
+  // follows it, Codex drops any placed before it.
   if (opts.effort !== null) argv.push("-c", `model_reasoning_effort=${opts.effort}`);
+  if (opts.networkAccess) argv.push("-c", "sandbox_workspace_write.network_access=true");
   if (opts.skipGitRepoCheck) argv.push("--skip-git-repo-check");
   argv.push("-"); // read the prompt from stdin
   return argv;
@@ -470,6 +489,7 @@ function makeResultWriter(opts, version, run) {
       sandbox: !resuming || opts.sandboxConfigured ? opts.sandbox : "(Codex config on resume)",
       model: opts.model,
       effort: opts.effort,
+      networkAccess: opts.networkAccess,
       resumeLast: opts.resumeLast,
       session: opts.session,
       cleanEnv: opts.cleanEnv,
@@ -566,7 +586,8 @@ function dispatchToCodex(opts, brief, run, writeResult, env) {
   const argv = buildArgv(opts, run.finalPath);
   // shell:true on Windows so the codex.cmd shim resolves (see codexVersion). Safe:
   // the brief is fed via child.stdin below — never argv — and argv holds only
-  // sandbox enums, model names, the pattern-checked effort, and file paths.
+  // sandbox enums, model names, the pattern-checked effort, the fixed network
+  // override, and file paths.
   // detached on POSIX: the child leads a new process group so killChild can fell the whole tree
   const child = spawnShellLaunch("codex", argv, { cwd: opts.cd, stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32", env }, process.platform === "win32");
 

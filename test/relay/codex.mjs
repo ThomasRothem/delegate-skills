@@ -14,6 +14,75 @@ h.check("codex effort: forwarded as a config override",
   effortRun.status === 0 && effortArgs.includes("-c") && effortArgs[effortArgs.indexOf("-c") + 1] === "model_reasoning_effort=low");
 h.check("codex effort: recorded in result.json",
   existsSync(join(effortOutDir, "result.json")) && h.result(effortOutDir).effort === "low");
+// ---- codex --network-access opens the workspace-write sandbox to the network ----
+const NETWORK_OVERRIDE = "sandbox_workspace_write.network_access=true";
+const configOverrides = (args) => args.flatMap((arg, i) => (arg === "-c" ? [args[i + 1]] : []));
+const captureNetwork = (name, flags) => {
+  const outDir = join(h.scratch, `out-network-${name}-codex`);
+  const argsFile = join(h.scratch, `args-network-${name}-codex`);
+  const run = spawnSync(process.execPath,
+    [h.relayPath("codex"), "--brief", h.briefPath, "--cd", h.freshRepo(`work-network-${name}-codex`), "--out-dir", outDir, ...flags],
+    { env: { ...h.baseEnv, SMOKE_MODE: "capture", SMOKE_ARGS_FILE: argsFile }, encoding: "utf8" });
+  const args = existsSync(argsFile) ? JSON.parse(readFileSync(argsFile, "utf8")) : [];
+  const result = existsSync(join(outDir, "result.json")) ? h.result(outDir) : null;
+  return { status: run.status, args, result };
+};
+const networkFresh = captureNetwork("fresh", ["--network-access"]);
+h.check("codex network-access: forwarded as the workspace-write network override",
+  networkFresh.status === 0 && configOverrides(networkFresh.args).includes(NETWORK_OVERRIDE));
+h.check("codex network-access: the fresh run keeps the workspace-write sandbox",
+  h.pair(networkFresh.args, "-s", "workspace-write"));
+h.check("codex network-access: recorded in result.json", networkFresh.result?.networkAccess === true);
+h.check("codex network-access: omitted, no network override is sent and false is recorded",
+  effortRun.status === 0 && effortArgs.length > 0
+    && !configOverrides(effortArgs).some((override) => override.startsWith("sandbox_workspace_write.network_access"))
+    && h.result(effortOutDir).networkAccess === false);
+const networkFullAccess = captureNetwork("full-access", ["--network-access", "--sandbox", "danger-full-access"]);
+h.check("codex network-access: accepted with danger-full-access",
+  networkFullAccess.status === 0 && h.pair(networkFullAccess.args, "-s", "danger-full-access")
+    && configOverrides(networkFullAccess.args).includes(NETWORK_OVERRIDE));
+// Codex keeps every -c that follows `resume` and drops any placed before it, so the
+// override must land after `resume`, beside the effort override, or the resumed turn runs offline.
+const networkSession = captureNetwork("session", ["--session", "thread-abc", "--sandbox", "workspace-write", "--network-access", "--effort", "low"]);
+h.check("codex network-access: re-applied after resume on --session",
+  networkSession.status === 0 && networkSession.args.slice(0, 5).join(" ") === "exec -s workspace-write resume thread-abc"
+    && configOverrides(networkSession.args.slice(5)).includes(NETWORK_OVERRIDE)
+    && configOverrides(networkSession.args.slice(5)).includes("model_reasoning_effort=low"));
+h.check("codex network-access: recorded on a resumed run", networkSession.result?.networkAccess === true);
+const networkResumeLast = captureNetwork("resume-last", ["--resume-last", "--sandbox", "workspace-write", "--network-access"]);
+const resumeLastAt = networkResumeLast.args.indexOf("resume");
+h.check("codex network-access: re-applied after resume on --resume-last with an explicit sandbox",
+  networkResumeLast.status === 0 && resumeLastAt > 0
+    && networkResumeLast.args.slice(0, resumeLastAt).join(" ") === "exec -s workspace-write"
+    && networkResumeLast.args[resumeLastAt + 1] === "--last"
+    && networkResumeLast.result?.networkAccess === true
+    && configOverrides(networkResumeLast.args.slice(resumeLastAt)).includes(NETWORK_OVERRIDE));
+// An unqualified resume runs under Codex's configured sandbox, which may be read-only and
+// would drop the override silently; the relay needs the sandbox named to record it truthfully.
+for (const [name, flags] of [
+  ["--session and no --sandbox", ["--session", "thread-abc"]],
+  ["--resume-last and no --sandbox", ["--resume-last"]],
+]) {
+  const outDir = join(h.scratch, `out-network-${name.replaceAll(/[ -]+/g, "-")}-codex`);
+  const run = spawnSync(process.execPath,
+    [h.relayPath("codex"), "--brief", h.briefPath, "--out-dir", outDir, "--network-access", ...flags],
+    { env: h.baseEnv, encoding: "utf8" });
+  h.check(`codex network-access: rejected on ${name} before artifacts`,
+    run.status === 2 && /--network-access/.test(run.stderr) && /--sandbox/.test(run.stderr)
+      && !/unknown option/.test(run.stderr) && !existsSync(outDir));
+}
+for (const [name, flags] of [
+  ["--read-only", ["--read-only"]],
+  ["--sandbox read-only", ["--sandbox", "read-only"]],
+]) {
+  const outDir = join(h.scratch, `out-network-${name.replaceAll(/[ -]+/g, "-")}-codex`);
+  const run = spawnSync(process.execPath,
+    [h.relayPath("codex"), "--brief", h.briefPath, "--out-dir", outDir, "--network-access", ...flags],
+    { env: h.baseEnv, encoding: "utf8" });
+  h.check(`codex network-access: rejected with ${name} before artifacts`,
+    run.status === 2 && /--network-access/.test(run.stderr) && /read-only/.test(run.stderr)
+      && !/unknown option/.test(run.stderr) && !existsSync(outDir));
+}
 // ---- codex --ignore-user-config isolates reviews from ambient MCP/user config ----
 const isolatedOutDir = join(h.scratch, "out-ignore-user-config-codex");
 const isolatedArgsFile = join(h.scratch, "args-ignore-user-config-codex");
