@@ -68,7 +68,8 @@ An unknown flag or a missing value is a usage error (exit 2). Other failures exi
   Codex expose the tools as direct native calls instead of through the code-mode exec wrapper that yields
   early and re-polls. Existing entries and order are kept (single-line and multi-line arrays); when the key
   is missing it is inserted under the existing table; when there is no `[features.code_mode]` table, it is
-  added inside the managed block.
+  added outside the managed block. Older generated blocks that contain this shared table are migrated
+  by moving the table intact outside the block, preserving other namespaces and settings.
 - Everything else in `config.toml` is preserved byte for byte, including comments and the file's CRLF or LF
   line endings. Before any change to an existing file, a copy is written next to it as
   `config.toml.bak-<timestamp>`. Nothing is written, and no backup made, when the content would not change.

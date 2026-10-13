@@ -295,3 +295,20 @@ test('flags: unknown or malformed options are usage errors', async () => {
   assert.ok(!existsSync(s.codexHome));
   assert.equal((await s.cli(['--help'])).code, 0);
 });
+
+test('bootstrap reruns preserve settings added to its shared code_mode table', () => {
+  for (const eol of ['\n', '\r\n']) {
+    const fresh = edit('').text.replace(/\r?\n/g, eol);
+    const end = '# END codex-background' + eol;
+    const legacy = fresh.replace(end, '') + end;
+    for (const initial of [fresh, legacy, legacy.trimEnd()]) {
+      const customized = initial.replace('["mcp__codex_background"]', '["mcp__codex_background", "mcp__other"]' + eol + '# retain shared settings' + eol + 'enabled = true');
+      const result = edit(customized).text;
+      assert.deepEqual(readManaged(result).namespaces, ['mcp__codex_background', 'mcp__other']);
+      assert.ok(result.includes('# retain shared settings' + eol + 'enabled = true'));
+      assert.ok(result.indexOf('[features.code_mode]') > result.indexOf('# END codex-background'));
+      assert.equal(count(result, '[features.code_mode]'), 1);
+      assert.equal(edit(result).text, result);
+    }
+  }
+});

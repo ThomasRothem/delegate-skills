@@ -227,9 +227,20 @@ export function editConfigToml(text, { command, serverPath, timeoutSeconds, regi
   if (new Set(owned.map(({ e }) => e.path.join('.'))).size !== owned.length || (block && owned.length)) throw new ConfigError('Duplicate [mcp_servers.codex_background] tables in config.toml (TOML forbids this). Remove the extra copies by hand, then re-run bootstrap.');
   const dropped = entries.filter(e => e.kind === 'key' && !e.array && e.path.length >= 1 && OWNED[e.table.join('.')] && !(e.path.length === 1 && OWNED[e.table.join('.')].includes(e.path[0]))).map(e => `${e.table.at(-1) === 'env' ? 'env.' : ''}${e.path.join('.')}`);
 
-  const edits = [];
-  const codeModes = entries.filter(e => e.kind === 'header' && !inBlock(e) && !e.array && same(e.path, CODE_MODE));
+  const codeModes = entries.filter(e => e.kind === 'header' && !e.array && same(e.path, CODE_MODE));
   if (codeModes.length > 1) throw new ConfigError('Duplicate [features.code_mode] tables in config.toml. Remove the extra copy by hand, then re-run bootstrap.');
+  if (codeModes.length && inBlock(codeModes[0])) {
+    // Older bootstrap blocks contained this shared table. Move it intact outside
+    // the replaceable block before updating the adapter's own tables.
+    const header = codeModes[0];
+    const next = entries.find(e => e.kind === 'header' && e.start > header.start);
+    const end = Math.min(next?.start ?? block.end, ends[0].start);
+    const separator = text.slice(end, block.end).endsWith('\n') ? '' : eol;
+    const migrated = text.slice(0, header.start) + text.slice(end, block.end) + separator + text.slice(header.start, end) + text.slice(block.end);
+    const result = editConfigToml(migrated, { command, serverPath, timeoutSeconds, registryPath });
+    return { ...result, changed: result.text !== text };
+  }
+  const edits = [];
   const needTable = !codeModes.length;
   if (codeModes.length) {
     const header = codeModes[0];
@@ -245,8 +256,9 @@ export function editConfigToml(text, { command, serverPath, timeoutSeconds, regi
   }
 
   const lines = [BEGIN, `[${MCP.join('.')}]`, `command = ${quote(command)}`, `args = [${quote(serverPath)}]`, `tool_timeout_sec = ${timeoutSeconds}`, 'required = true', '', `[${MCP_ENV.join('.')}]`, `CODEX_BACKGROUND_REGISTRY = ${quote(registryPath)}`];
+  lines.push(END);
   if (needTable) lines.push('', `[${CODE_MODE.join('.')}]`, `${DIRECT} = [${quote(NAMESPACE)}]`);
-  const blockText = [...lines, END].map(l => l + eol).join('');
+  const blockText = lines.map(l => l + eol).join('');
   if (block) edits.push({ ...block, text: blockText });
   else if (owned.length) owned.forEach(({ i }, n) => edits.push({ ...sectionRange(entries, i), text: n ? '' : blockText }));
   else edits.push({ start: text.length, end: text.length, text: (text && !text.endsWith('\n') ? eol : '') + (text.trim() ? eol : '') + blockText });
