@@ -268,7 +268,10 @@ Per skill — platform, CLI version, and what the run exercised:
   `readOnly` true, `readOnlyViolation` false; argument validation for a bad `--effort` value and for
   `--read-only` combined with `--dangerously-skip-permissions`, both exiting 2; resume by
   `--conversation` with a delta brief. macOS, `agy` 1.0.16: headless edit run, `--print=` delivery,
-  absolute `--add-dir` workspace pin.
+  absolute `--add-dir` workspace pin. `--stall-timeout` is contract-tested, live stall pending: a fake
+  whose log keeps growing without `streamGenerateContent` lines reports `stalled`, steady generation
+  calls split across writes keep a run alive, and the watchdog is off unless passed; run on native
+  Windows against the compiled fake.
 - `claude-delegate` — macOS, `claude` 2.1.220: write run under `acceptEdits`; plan mode refusing an
   edit, with the Git tripwire true on a violation and false on a clean run;
   `--session`/`--resume-last` resume; `claude_unavailable`/127 and usage errors exiting 2 without a
@@ -291,7 +294,9 @@ Per skill — platform, CLI version, and what the run exercised:
 - `cursor-delegate` — Windows, `cursor-agent` 2026.07.23-e383d2b: write run under `--force`; plan-mode
   `--read-only` touching nothing; `--session <id>` resume applying a delta brief; usage errors exiting
   2. A maintainer-run native macOS plan-mode smoke against the same version captured model, session,
-  and usage with no touched files.
+  and usage with no touched files. `--stall-timeout` is contract-tested; the live hang it targets was
+  observed on Linux with `cursor-agent` 2026.10.01-e373342 (two runs silent after `thinking`
+  `completed`, never exiting).
 - `grok-delegate` — macOS, `grok` 0.2.101: streaming-json report capture, file-based brief delivery,
   resume; read-only is best-effort by measurement, hence the violation flag.
   Contributor-run native Windows check with `grok` 1.0.13: a no-edit dispatch using

@@ -49,6 +49,39 @@ if (versionProbe && process.env.SMOKE_MODE === "grok-spawn-error" && process.pla
   process.exit(0);
 }
 if (process.env.SMOKE_FORWARD_ARGS_FILE) fs.writeFileSync(process.env.SMOKE_FORWARD_ARGS_FILE, JSON.stringify(args));
+// cursor stall-watchdog modes: emit Cursor-shaped stream-json, then misbehave or finish.
+//   cursor-stall      init, then silent forever without exiting (the observed live hang)
+//   cursor-slow-tool  a tool call that stays in flight longer than --stall-timeout, then completes
+//   cursor-steady     keeps emitting thinking deltas past --stall-timeout, then completes
+if (["cursor-stall", "cursor-delayed-shutdown", "cursor-slow-tool", "cursor-steady"].includes(process.env.SMOKE_MODE)) {
+  const emit = (event) => console.log(JSON.stringify({ session_id: "cursor-stall-session", ...event }));
+  const finish = () => {
+    emit({ type: "result", subtype: "success", is_error: false, result: "fake cursor finished" });
+    process.exit(0);
+  };
+  process.stdin.resume();
+  process.stdin.on("end", () => {
+    emit({ type: "system", subtype: "init", model: "fake", permissionMode: "default" });
+    const mode = process.env.SMOKE_MODE;
+    if (mode === "cursor-delayed-shutdown") {
+      process.once("SIGTERM", () => setTimeout(() => process.exit(0), 2500));
+      setInterval(() => {}, 1000);
+    } else if (mode === "cursor-stall") {
+      emit({ type: "thinking", subtype: "completed" });
+      setInterval(() => {}, 1000);
+    } else if (mode === "cursor-slow-tool") {
+      emit({ type: "tool_call", subtype: "started", call_id: "tool-1" });
+      setTimeout(() => {
+        emit({ type: "tool_call", subtype: "completed", call_id: "tool-1" });
+        finish();
+      }, 2500);
+    } else {
+      const tick = setInterval(() => emit({ type: "thinking", subtype: "delta", text: "." }), 200);
+      setTimeout(() => { clearInterval(tick); finish(); }, 2500);
+    }
+  });
+  return;
+}
 if (process.env.SMOKE_MODE === "capture") {
   fs.writeFileSync(process.env.SMOKE_ARGS_FILE, JSON.stringify(args));
   if (process.env.SMOKE_ENV_FILE) fs.writeFileSync(process.env.SMOKE_ENV_FILE, JSON.stringify(capturedEnv()));
@@ -178,6 +211,31 @@ if (process.env.SMOKE_MODE === "agy-silent-edit") {
   process.exit(0);
 }
 if (process.env.SMOKE_MODE === "agy-silent-noop") process.exit(0);
+// agy-stall: one generation call, then only reconnect handshakes - the log keeps growing but
+// no model request follows. agy-streaming: generation calls keep coming, each marker written in
+// two halves so the relay's log watch must join a marker split across reads.
+if (process.env.SMOKE_MODE === "agy-stall" || process.env.SMOKE_MODE === "agy-streaming") {
+  const logAt = args.indexOf("--log-file");
+  const log = (text) => { if (logAt !== -1) fs.appendFileSync(args[logAt + 1], text); };
+  log("I0816 streamGenerateContent\n");
+  // #89's shape: the edits land, then the stream dies before the run can finish.
+  if (process.env.SMOKE_EDIT_FILE) fs.appendFileSync(process.env.SMOKE_EDIT_FILE, "dispatch edit\n");
+  if (process.env.SMOKE_MODE === "agy-stall") {
+    setInterval(() => log("I0816 fetchAvailableModels\n"), 100);
+  } else {
+    let ticks = 0;
+    const stream = setInterval(() => {
+      ticks += 1;
+      log(ticks % 2 ? "I0816 streamGenerate" : "Content\n");
+      if (ticks >= 24) {
+        clearInterval(stream);
+        console.log("fake agy streamed to completion");
+        process.exit(0);
+      }
+    }, 125);
+  }
+  return;
+}
 if (process.env.SMOKE_MODE === "zcode-success") {
   fs.writeFileSync(process.env.SMOKE_ARGS_FILE, JSON.stringify(args));
   // ZCode's bundled AI SDK prints this banner with console.info — i.e. on stdout,
