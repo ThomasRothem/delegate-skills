@@ -800,6 +800,23 @@ if (observation === "models") {
         h.pair(codexResumeArgs, "-s", "read-only") &&
         codexResumeArgs.indexOf("-s") < codexResumeArgs.indexOf("resume") &&
         h.result(codexResumeOut).sandbox === "read-only");
+    const codexLaneNetworkOut = join(cfgRepo, "out-lane-codex-network");
+    const codexLaneNetwork = spawnSync(
+      process.execPath,
+      [
+        h.relayPath("codex"),
+        "--brief", laneBrief,
+        "--cd", cfgRepo,
+        "--out-dir", codexLaneNetworkOut,
+        "--lane", "codex-review",
+        "--network-access",
+      ],
+      { encoding: "utf8", env: { ...fleetEnv, SMOKE_MODE: "capture" } },
+    );
+    h.check("relay --lane: Codex read-only lane rejects --network-access before artifacts",
+      codexLaneNetwork.status === 2 && /--network-access/.test(codexLaneNetwork.stderr) &&
+        /read-only/.test(codexLaneNetwork.stderr) && !/unknown option/.test(codexLaneNetwork.stderr) &&
+        !existsSync(codexLaneNetworkOut));
 
     const opencodeResumeOut = join(cfgRepo, "out-lane-opencode-resume");
     const opencodeResumeArgsFile = join(cfgRepo, "args-lane-opencode-resume.json");
