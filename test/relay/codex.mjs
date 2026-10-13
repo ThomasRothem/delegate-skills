@@ -14,6 +14,86 @@ h.check("codex effort: forwarded as a config override",
   effortRun.status === 0 && effortArgs.includes("-c") && effortArgs[effortArgs.indexOf("-c") + 1] === "model_reasoning_effort=low");
 h.check("codex effort: recorded in result.json",
   existsSync(join(effortOutDir, "result.json")) && h.result(effortOutDir).effort === "low");
+// ---- codex --subagent-model / --subagent-effort set the defaults for spawned subagents ----
+const configOverrides = (args) => args.flatMap((arg, i) => (arg === "-c" ? [args[i + 1]] : []));
+const subagentOverrides = (args) => configOverrides(args).filter((override) => override.startsWith("agents."));
+const captureSubagent = (name, flags) => {
+  const outDir = join(h.scratch, `out-subagent-${name}-codex`);
+  const argsFile = join(h.scratch, `args-subagent-${name}-codex`);
+  const run = spawnSync(process.execPath,
+    [h.relayPath("codex"), "--brief", h.briefPath, "--cd", h.freshRepo(`work-subagent-${name}-codex`), "--out-dir", outDir, ...flags],
+    { env: { ...h.baseEnv, SMOKE_MODE: "capture", SMOKE_ARGS_FILE: argsFile }, encoding: "utf8" });
+  const args = existsSync(argsFile) ? JSON.parse(readFileSync(argsFile, "utf8")) : [];
+  const result = existsSync(join(outDir, "result.json")) ? h.result(outDir) : null;
+  return { status: run.status, args, result };
+};
+const subagentBoth = captureSubagent("both", ["--subagent-model", "openai/gpt-x.1", "--subagent-effort", "medium"]);
+h.check("codex subagent: model and effort are forwarded as the only agents.* overrides",
+  subagentBoth.status === 0 && JSON.stringify(subagentOverrides(subagentBoth.args)) === JSON.stringify([
+    "agents.default_subagent_model=openai/gpt-x.1", "agents.default_subagent_reasoning_effort=medium"]));
+h.check("codex subagent: model and effort are recorded in result.json",
+  subagentBoth.result?.subagentModel === "openai/gpt-x.1" && subagentBoth.result?.subagentEffort === "medium");
+const subagentModelOnly = captureSubagent("model-only", ["--subagent-model", "gpt-x"]);
+h.check("codex subagent: --subagent-model alone sends only the model override",
+  subagentModelOnly.status === 0
+    && JSON.stringify(subagentOverrides(subagentModelOnly.args)) === JSON.stringify(["agents.default_subagent_model=gpt-x"])
+    && subagentModelOnly.result?.subagentModel === "gpt-x" && subagentModelOnly.result?.subagentEffort === null);
+const subagentEffortOnly = captureSubagent("effort-only", ["--subagent-effort", "future-level"]);
+h.check("codex subagent: --subagent-effort alone sends only the effort override",
+  subagentEffortOnly.status === 0
+    && JSON.stringify(subagentOverrides(subagentEffortOnly.args)) === JSON.stringify(["agents.default_subagent_reasoning_effort=future-level"])
+    && subagentEffortOnly.result?.subagentEffort === "future-level" && subagentEffortOnly.result?.subagentModel === null);
+h.check("codex subagent: omitted, no agents.* override is sent and null is recorded",
+  effortRun.status === 0 && effortArgs.length > 0 && subagentOverrides(effortArgs).length === 0
+    && h.result(effortOutDir).subagentModel === null && h.result(effortOutDir).subagentEffort === null);
+// Subagents inherit the run's sandbox, so the dials carry no sandbox restriction of their own.
+for (const sandbox of ["read-only", "danger-full-access"]) {
+  const run = captureSubagent(`sandbox-${sandbox}`,
+    ["--sandbox", sandbox, "--subagent-model", "gpt-x", "--subagent-effort", "low"]);
+  h.check(`codex subagent: both flags accepted under ${sandbox}`,
+    run.status === 0 && h.pair(run.args, "-s", sandbox)
+      && JSON.stringify(subagentOverrides(run.args)) === JSON.stringify([
+        "agents.default_subagent_model=gpt-x", "agents.default_subagent_reasoning_effort=low"]));
+}
+// Codex keeps every -c that follows `resume` and drops any placed before it.
+const subagentSession = captureSubagent("session",
+  ["--session", "thread-abc", "--subagent-model", "gpt-x", "--subagent-effort", "high", "--effort", "low"]);
+h.check("codex subagent: re-applied after resume on --session",
+  subagentSession.status === 0 && subagentSession.args.slice(0, 3).join(" ") === "exec resume thread-abc"
+    && JSON.stringify(subagentOverrides(subagentSession.args.slice(3))) === JSON.stringify([
+      "agents.default_subagent_model=gpt-x", "agents.default_subagent_reasoning_effort=high"])
+    && configOverrides(subagentSession.args.slice(3)).includes("model_reasoning_effort=low"));
+h.check("codex subagent: recorded on a resumed run",
+  subagentSession.result?.subagentModel === "gpt-x" && subagentSession.result?.subagentEffort === "high");
+const subagentResumeLast = captureSubagent("resume-last",
+  ["--resume-last", "--subagent-model", "gpt-y", "--subagent-effort", "low"]);
+const subagentResumeAt = subagentResumeLast.args.indexOf("resume");
+h.check("codex subagent: re-applied after resume on --resume-last",
+  subagentResumeLast.status === 0 && subagentResumeAt > 0 && subagentResumeLast.args[subagentResumeAt + 1] === "--last"
+    && JSON.stringify(subagentOverrides(subagentResumeLast.args.slice(subagentResumeAt))) === JSON.stringify([
+      "agents.default_subagent_model=gpt-y", "agents.default_subagent_reasoning_effort=low"])
+    && subagentResumeLast.result?.subagentModel === "gpt-y" && subagentResumeLast.result?.subagentEffort === "low");
+const subagentSessionOmitted = captureSubagent("session-omitted", ["--session", "thread-abc"]);
+h.check("codex subagent: omitted on resume, no agents.* override is sent and null is recorded",
+  subagentSessionOmitted.status === 0 && subagentSessionOmitted.args.length > 0
+    && subagentOverrides(subagentSessionOmitted.args).length === 0
+    && subagentSessionOmitted.result?.subagentModel === null && subagentSessionOmitted.result?.subagentEffort === null);
+for (const [flag, name, value] of [
+  ["--subagent-model", "an empty value", ""],
+  ["--subagent-model", "an option-like value", "--read-only"],
+  ["--subagent-model", "a shell-unsafe value", "gpt-x & whoami"],
+  ["--subagent-effort", "an empty value", ""],
+  ["--subagent-effort", "an option-like value", "--read-only"],
+  ["--subagent-effort", "a value with a space", "lo w"],
+  ["--subagent-effort", "a shell-unsafe value", "low&whoami"],
+]) {
+  const outDir = join(h.scratch, `out-subagent-invalid-${flag.slice(2)}-${name.replaceAll(" ", "-")}-codex`);
+  const run = spawnSync(process.execPath,
+    [h.relayPath("codex"), "--brief", h.briefPath, "--out-dir", outDir, flag, value],
+    { env: h.baseEnv, encoding: "utf8" });
+  h.check(`codex subagent: ${flag} with ${name} is rejected before artifacts`,
+    run.status === 2 && run.stderr.includes(flag) && !/unknown option/.test(run.stderr) && !existsSync(outDir));
+}
 // ---- codex --ignore-user-config isolates reviews from ambient MCP/user config ----
 const isolatedOutDir = join(h.scratch, "out-ignore-user-config-codex");
 const isolatedArgsFile = join(h.scratch, "args-ignore-user-config-codex");

@@ -31,6 +31,16 @@
  *   --effort <level>        Reasoning effort, passed to Codex as
  *                           `-c model_reasoning_effort=<level>` (default: Codex's
  *                           own configured default).
+ *   --subagent-model <name> Default model for subagents Codex spawns during the run,
+ *                           passed as `-c agents.default_subagent_model=<name>`.
+ *   --subagent-effort <level>
+ *                           Default reasoning effort for those subagents, passed as
+ *                           `-c agents.default_subagent_reasoning_effort=<level>`.
+ *                           Without either, subagents follow Codex's own config. A model
+ *                           TOML reads as a number (e.g. 5.5) fails at startup; an
+ *                           unknown model or unsupported effort fails only the spawn, so
+ *                           the run can still exit 0. Pass them again on every resume:
+ *                           Codex does not carry them over.
  *   --sandbox <mode>        read-only | workspace-write | danger-full-access
  *                           (default: workspace-write).
  *   --read-only             Shortcut for --sandbox read-only (review/diagnosis, no edits).
@@ -154,6 +164,8 @@ function parseArgs(argv) {
     cd: process.cwd(),
     model: null,
     effort: null,
+    subagentModel: null,
+    subagentEffort: null,
     sandbox: "workspace-write",
     sandboxConfigured: false,
     resumeLast: false,
@@ -184,6 +196,8 @@ function parseArgs(argv) {
       case "--lane": opts.lane = next(); break;
       case "--model": opts.model = next(); flagged.add("model"); break;
       case "--effort": opts.effort = next(); flagged.add("effort"); break;
+      case "--subagent-model": opts.subagentModel = next(); break;
+      case "--subagent-effort": opts.subagentEffort = next(); break;
       case "--sandbox": opts.sandbox = next(); opts.sandboxConfigured = true; flagged.add("sandbox"); break;
       case "--read-only": opts.sandbox = "read-only"; opts.sandboxConfigured = true; flagged.add("sandbox"); flagged.add("readOnly"); break;
       case "--resume-last": opts.resumeLast = true; break;
@@ -207,6 +221,12 @@ function parseArgs(argv) {
   }
   if (opts.model !== null && !SAFE_MODEL.test(opts.model)) {
     fail("--model contains unsupported characters (allowed: letters, digits, . _ : / -)");
+  }
+  if (opts.subagentModel !== null && !SAFE_MODEL.test(opts.subagentModel)) {
+    fail("--subagent-model contains unsupported characters (allowed: letters, digits, . _ : / -)");
+  }
+  if (opts.subagentEffort !== null && !/^[a-z][a-z0-9-]*$/i.test(opts.subagentEffort)) {
+    fail(`invalid --subagent-effort "${opts.subagentEffort}" (expected a non-empty bare token)`);
   }
   if (opts.keepEnv.length && !opts.cleanEnv) {
     fail("--keep-env requires --clean-env");
@@ -407,9 +427,12 @@ function buildArgv(opts, finalPath) {
     argv.push("-s", opts.sandbox);
   }
   if (opts.model) argv.push("-m", opts.model);
-  // `-c` is accepted by the resume subcommand, so the effort override applies to
-  // fresh and resumed runs alike.
+  // `-c` is accepted by the resume subcommand, so the effort and subagent overrides
+  // apply to fresh and resumed runs alike. Keep every `-c` after `resume`: once one
+  // follows it, Codex drops any placed before it.
   if (opts.effort !== null) argv.push("-c", `model_reasoning_effort=${opts.effort}`);
+  if (opts.subagentModel !== null) argv.push("-c", `agents.default_subagent_model=${opts.subagentModel}`);
+  if (opts.subagentEffort !== null) argv.push("-c", `agents.default_subagent_reasoning_effort=${opts.subagentEffort}`);
   if (opts.skipGitRepoCheck) argv.push("--skip-git-repo-check");
   argv.push("-"); // read the prompt from stdin
   return argv;
@@ -470,6 +493,8 @@ function makeResultWriter(opts, version, run) {
       sandbox: !resuming || opts.sandboxConfigured ? opts.sandbox : "(Codex config on resume)",
       model: opts.model,
       effort: opts.effort,
+      subagentModel: opts.subagentModel,
+      subagentEffort: opts.subagentEffort,
       resumeLast: opts.resumeLast,
       session: opts.session,
       cleanEnv: opts.cleanEnv,
@@ -566,7 +591,8 @@ function dispatchToCodex(opts, brief, run, writeResult, env) {
   const argv = buildArgv(opts, run.finalPath);
   // shell:true on Windows so the codex.cmd shim resolves (see codexVersion). Safe:
   // the brief is fed via child.stdin below — never argv — and argv holds only
-  // sandbox enums, model names, the pattern-checked effort, and file paths.
+  // sandbox enums, model names (the subagent's included), the pattern-checked
+  // efforts, and file paths.
   // detached on POSIX: the child leads a new process group so killChild can fell the whole tree
   const child = spawnShellLaunch("codex", argv, { cwd: opts.cd, stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32", env }, process.platform === "win32");
 

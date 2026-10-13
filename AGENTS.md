@@ -30,7 +30,7 @@ jargon. Use these terms; don't invent synonyms.
 | **lane** | a named fleet binding: implementer + optional dials (`model`, `effort` / `variant`, …) | "route", "profile" |
 | **fleet** | the user's set of lanes (which CLI handles which kind of work) | — |
 | **setup skill** / `delegate-setup` | utility that discovers CLIs and writes the lane map after approval | a `*-delegate` skill |
-| `exec`, `sandbox`, `resume`, `session` | Codex's own terms — use verbatim | don't paraphrase them |
+| `exec`, `sandbox`, `resume`, `session`, `subagents` | Codex's own terms — use verbatim | don't paraphrase them; never use `subagents` as a generic synonym for implementer |
 | `-p` / `--print`, `--yolo` (`--dangerously-skip-permissions`), `--permission-mode` (`standard`/`plan`/`auto-accept`), `--tools-all`, `--resume`, `--continue`, `--effort`, `--max-turns` | Command Code's own terms — use verbatim when discussing `cmd` | never say Command Code has a sandbox, or a write-capable mode between withheld-tools and `--yolo`: `--permission-mode auto-accept` and `--tools-all` do not enable edits headlessly. Never call the binary "the cmd shell" |
 | `run`, `agent` (`build`/`plan`), `session` | OpenCode's own terms — use verbatim | "sandbox" (OpenCode has no sandbox enum; autonomy is the agent) |
 | `project`, `conversation`, `model`, `permissions`, `sandbox`, `TUI`, `tasks`, `subagents` | Antigravity's own terms — use verbatim when discussing `agy` | don't use `subagents` as a generic synonym for implementer |
