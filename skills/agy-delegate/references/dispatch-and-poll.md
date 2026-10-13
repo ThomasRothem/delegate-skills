@@ -75,8 +75,9 @@ touched-files report shows only Antigravity's edits and nothing of the helper's 
 The helper also prints a summary to stdout and normally exits with Antigravity's exit code. It forces
 exit 1 when Antigravity exits 0 after a detected headless permission denial or with neither a final
 message nor observable working-tree changes, so a wrapping script can branch on success/failure directly.
-It also forces exit 1 for a write-capable run that terminates pending background tasks on exit without
-observable working-tree changes, even if `finalMessage` says it is waiting. Read `error` and `stderrTail`,
+It also forces exit 1 for a write-capable run that terminates pending background tasks on exit when
+Git fingerprints confirm no working-tree changes, even if `finalMessage` says it is waiting.
+If Git cannot fingerprint the directory, that diagnostic alone does not fail a run with a final message. Read `error` and `stderrTail`,
 then re-dispatch with a brief requiring synchronous commands and a reply only after they finish
 (see [writing-the-brief.md](writing-the-brief.md)).
 

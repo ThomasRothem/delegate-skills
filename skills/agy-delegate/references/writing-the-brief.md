@@ -69,7 +69,7 @@ a report you can read.
 Headless `agy --print` ends the turn when the reply ends and kills pending background tasks on exit.
 In the brief, instruct Antigravity to run commands synchronously, wait for them to finish, and never
 end its reply while waiting on a task. A write-capable run that terminates pending background tasks
-without observable working-tree changes is reported by the relay as `failed`, even with a final message.
+when Git fingerprints confirm no working-tree changes is reported by the relay as `failed`, even with a final message.
 
 `<verification_loop>` is only useful if it names the project's *actual* commands. Read the repo's
 `AGENTS.md` / `CLAUDE.md` / `Makefile` / `package.json` first and copy the real ones in (`make test`,

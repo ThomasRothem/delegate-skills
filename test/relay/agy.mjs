@@ -91,6 +91,18 @@ export async function runAgy(h) {
     abandonedEdited.value.error === undefined &&
     JSON.stringify(abandonedEdited.value.touchedFiles) === JSON.stringify(["?? pre-existing.txt"]));
 
+  const nonGitDir = join(h.scratch, "work-abandoned-non-git-agy");
+  mkdirSync(nonGitDir);
+  const abandonedNonGit = run("abandoned-non-git", "agy-abandoned-background-edit", "edited.txt", nonGitDir);
+  h.check("agy abandoned background: unavailable git fingerprint does not fail edited work",
+    abandonedNonGit.result.status === 0 &&
+    abandonedNonGit.value.status === "completed" &&
+    abandonedNonGit.value.exitCode === 0 &&
+    abandonedNonGit.value.finalMessage === "Waiting for the test run to finish." &&
+    abandonedNonGit.value.error === undefined &&
+    abandonedNonGit.value.touchedFiles === null &&
+    readFileSync(join(nonGitDir, "edited.txt"), "utf8").includes("dispatch edit"));
+
   const abandonedReadOnly = run("abandoned-read-only", "agy-abandoned-background", null, undefined, ["--read-only"]);
   h.check("agy abandoned background: read-only report without edits remains completed",
     abandonedReadOnly.result.status === 0 &&

@@ -810,7 +810,7 @@ function dispatchToAgy(opts, brief, run, writeResult, watchdogMs, stallMs) {
     const worktreeChanged = beforeState !== null && afterState !== null && beforeState !== afterState;
     const readOnlyViolation = readOnlyVerdict(opts, beforeState, afterState);
     const silentNoop = code === 0 && !finalMessage && !worktreeChanged;
-    const abandonedBackground = code === 0 && !opts.readOnly && !worktreeChanged &&
+    const abandonedBackground = code === 0 && !opts.readOnly && beforeState !== null && afterState === beforeState &&
       /terminating\s+\d+\s+background task\(s\) on exit/i.test(stderr);
     // A timed-out run is failed even if agy handles SIGTERM by exiting 0 -
     // orchestrators key off status and the relay exit code.
