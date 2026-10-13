@@ -31,6 +31,11 @@
  *   --effort <level>        Reasoning effort, passed to Codex as
  *                           `-c model_reasoning_effort=<level>` (default: Codex's
  *                           own configured default).
+ *   --web-search <mode>     Codex's web search mode, passed as `-c web_search=<mode>`
+ *                           (Codex's modes: disabled | cached | indexed | live; default:
+ *                           Codex's own configured default). Search is a hosted tool, so
+ *                           it works under every sandbox, read-only included. Pass it
+ *                           again on every resume: Codex does not carry it over.
  *   --sandbox <mode>        read-only | workspace-write | danger-full-access
  *                           (default: workspace-write).
  *   --read-only             Shortcut for --sandbox read-only (review/diagnosis, no edits).
@@ -100,6 +105,9 @@ const SAFE_ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // Model reaches cmd.exe on win32 (shell:true for the codex.cmd shim) — same shell-safe
 // family as grok/pi. Keep in lockstep with delegate-setup MODEL_TOKEN.shellSafe.
 const SAFE_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/;
+// Effort and web search modes are Codex-owned enums that vary by version; the relay
+// checks only for a bare token, which also keeps them inert in cmd.exe on win32.
+const BARE_TOKEN = /^[a-z][a-z0-9-]*$/i;
 
 const IMPLEMENTER_KEY = "codex";
 
@@ -154,6 +162,7 @@ function parseArgs(argv) {
     cd: process.cwd(),
     model: null,
     effort: null,
+    webSearch: null,
     sandbox: "workspace-write",
     sandboxConfigured: false,
     resumeLast: false,
@@ -184,6 +193,7 @@ function parseArgs(argv) {
       case "--lane": opts.lane = next(); break;
       case "--model": opts.model = next(); flagged.add("model"); break;
       case "--effort": opts.effort = next(); flagged.add("effort"); break;
+      case "--web-search": opts.webSearch = next(); break;
       case "--sandbox": opts.sandbox = next(); opts.sandboxConfigured = true; flagged.add("sandbox"); break;
       case "--read-only": opts.sandbox = "read-only"; opts.sandboxConfigured = true; flagged.add("sandbox"); flagged.add("readOnly"); break;
       case "--resume-last": opts.resumeLast = true; break;
@@ -202,8 +212,11 @@ function parseArgs(argv) {
   if (!SANDBOX_MODES.has(opts.sandbox)) {
     fail(`invalid --sandbox "${opts.sandbox}" (expected: ${[...SANDBOX_MODES].join(", ")})`);
   }
-  if (opts.effort !== null && !/^[a-z][a-z0-9-]*$/i.test(opts.effort)) {
+  if (opts.effort !== null && !BARE_TOKEN.test(opts.effort)) {
     fail(`invalid --effort "${opts.effort}" (expected a non-empty bare token)`);
+  }
+  if (opts.webSearch !== null && !BARE_TOKEN.test(opts.webSearch)) {
+    fail(`invalid --web-search "${opts.webSearch}" (expected a non-empty bare token)`);
   }
   if (opts.model !== null && !SAFE_MODEL.test(opts.model)) {
     fail("--model contains unsupported characters (allowed: letters, digits, . _ : / -)");
@@ -407,9 +420,11 @@ function buildArgv(opts, finalPath) {
     argv.push("-s", opts.sandbox);
   }
   if (opts.model) argv.push("-m", opts.model);
-  // `-c` is accepted by the resume subcommand, so the effort override applies to
-  // fresh and resumed runs alike.
+  // `-c` is accepted by the resume subcommand, so the effort and web search overrides
+  // apply to fresh and resumed runs alike. Keep every `-c` after `resume`: once one
+  // follows it, Codex drops any placed before it.
   if (opts.effort !== null) argv.push("-c", `model_reasoning_effort=${opts.effort}`);
+  if (opts.webSearch !== null) argv.push("-c", `web_search=${opts.webSearch}`);
   if (opts.skipGitRepoCheck) argv.push("--skip-git-repo-check");
   argv.push("-"); // read the prompt from stdin
   return argv;
@@ -470,6 +485,7 @@ function makeResultWriter(opts, version, run) {
       sandbox: !resuming || opts.sandboxConfigured ? opts.sandbox : "(Codex config on resume)",
       model: opts.model,
       effort: opts.effort,
+      webSearch: opts.webSearch,
       resumeLast: opts.resumeLast,
       session: opts.session,
       cleanEnv: opts.cleanEnv,
@@ -566,7 +582,8 @@ function dispatchToCodex(opts, brief, run, writeResult, env) {
   const argv = buildArgv(opts, run.finalPath);
   // shell:true on Windows so the codex.cmd shim resolves (see codexVersion). Safe:
   // the brief is fed via child.stdin below — never argv — and argv holds only
-  // sandbox enums, model names, the pattern-checked effort, and file paths.
+  // sandbox enums, model names, the pattern-checked effort and web search
+  // mode, and file paths.
   // detached on POSIX: the child leads a new process group so killChild can fell the whole tree
   const child = spawnShellLaunch("codex", argv, { cwd: opts.cd, stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32", env }, process.platform === "win32");
 
