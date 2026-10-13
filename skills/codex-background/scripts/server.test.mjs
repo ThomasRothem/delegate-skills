@@ -95,6 +95,19 @@ function alive(pid) {
 }
 async function clean(s, c) { await c.close(); rmSync(s.root, { recursive: true, force: true }); }
 
+test('listing tools is read-only and dispatch creates missing state', { skip: !['linux', 'win32'].includes(process.platform), timeout: 15000 }, async () => {
+  const s = setup(), c = client(s);
+  try {
+    const listed = await c.request('tools/list', {}).promise;
+    assert.ok(listed.result.tools.some(tool => tool.name === 'delegate_run'));
+    assert.equal(existsSync(s.state), false);
+    const response = await c.run('first', {}).promise;
+    assert.equal(outcome(response).adapterStatus, 'completed');
+    assert.equal(existsSync(join(s.state, 'output-claims')), true);
+    assert.equal(existsSync(join(s.state, 'first', 'outcome.json')), true);
+  } finally { await clean(s, c); }
+});
+
 test('Windows ownership preserves UTF-8 launch paths and relay arguments', { skip: process.platform !== 'win32', timeout: 15000 }, async () => {
   const s = setup('café مرحبا 漢字-'), c = client(s);
   try {

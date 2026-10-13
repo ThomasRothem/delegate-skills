@@ -56,8 +56,6 @@ function readRegistry(file) {
     if (!statSync(path).isFile() || basename(path) !== 'relay.mjs' || basename(dirname(path)) !== 'scripts' || basename(dirname(dirname(path))) !== `${key}-delegate`) throw Error(`Invalid registered relay for ${key}`);
     relays.set(key, path);
   }
-  mkdirSync(stateDirectory, { recursive: true });
-  mkdirSync(join(stateDirectory, 'output-claims'), { recursive: true });
   return { budgetMs, workspaceRoots, artifactRoots, stateDirectory, relays };
 }
 function validId(value) {
@@ -171,6 +169,8 @@ export function startServer({ registryFile = process.env.CODEX_BACKGROUND_REGIST
   function launch(args) {
     if (closing) throw Error('Server is shutting down; no new delegation is accepted');
     const spec = prepare(args);
+    mkdirSync(registry.stateDirectory, { recursive: true });
+    mkdirSync(join(registry.stateDirectory, 'output-claims'), { recursive: true });
     mkdirSync(spec.runDirectory); // Exclusive durable run claim, including across server instances.
     const outputKey = createHash('sha256').update(process.platform === 'win32' ? spec.outputDirectory.toLowerCase() : spec.outputDirectory).digest('hex');
     const claim = join(registry.stateDirectory, 'output-claims', outputKey);

@@ -312,3 +312,17 @@ test('bootstrap reruns preserve settings added to its shared code_mode table', (
     }
   }
 });
+
+test('--check leaves missing state directories absent', { skip: !['linux', 'win32'].includes(process.platform), timeout: 15000 }, async () => {
+  const s = sandbox();
+  s.boot();
+  const state = join(s.codexHome, 'codex-background', 'state');
+  rmSync(state, { recursive: true, force: true });
+  const snapshot = () => [readFileSync(s.config, 'utf8'), readFileSync(s.registry, 'utf8'), readdirSync(s.codexHome, { recursive: true }).sort()];
+  const before = snapshot();
+  const checked = await s.cli(['--check', '--json']);
+  assert.equal(checked.code, 0, checked.out);
+  assert.equal(JSON.parse(checked.out).ok, true);
+  assert.deepEqual(snapshot(), before);
+  assert.equal(existsSync(state), false);
+});
