@@ -37,6 +37,8 @@ Options:
 | `--lane <name>` | Fleet lane from `delegate-setup` config. Applies that lane's dials; fails if the lane's `implementer` is not this relay. Explicit dial flags win. |
 | `--model <name>` | Codex model (default: Codex's own configured default). |
 | `--effort <level>` | Reasoning effort, passed to Codex as `-c model_reasoning_effort=<level>` (default: Codex's own configured default). The relay accepts a bare token; Codex and the model own the supported levels. Applies to fresh and resumed runs. |
+| `--subagent-model <name>` | Default model for subagents Codex spawns during the run, passed as `-c agents.default_subagent_model=<name>`. Same character rules as `--model`. See [Subagents](#subagents). |
+| `--subagent-effort <level>` | Default reasoning effort for those subagents, passed as `-c agents.default_subagent_reasoning_effort=<level>`. The relay accepts a bare token, as for `--effort`. See [Subagents](#subagents). |
 | `--web-search <mode>` | Codex's web search mode, passed as `-c web_search=<mode>`: `disabled`, `cached`, `indexed` or `live` (default: Codex's own configured default). Works under every sandbox. Pass it again on every resume: Codex does not carry it into a resumed turn. See [Web search](#web-search). |
 | `--network-access` | Allow network access inside the `workspace-write` sandbox, passed to Codex as `-c sandbox_workspace_write.network_access=true`. Rejected with a read-only sandbox. Pass it again on every resume, with the sandbox named by `--sandbox` or a fleet lane: Codex does not carry it into a resumed turn. See [Network access](#network-access). |
 | `--sandbox <mode>` | `read-only` \| `workspace-write` \| `danger-full-access` (default: `workspace-write`). |
@@ -70,6 +72,25 @@ entries Codex falls back to System32 `powershell.exe`, which the sandbox can lau
 `--sandbox danger-full-access` runs without the restricted token and gets `PATH` unchanged. To
 see whether a machine is affected: `(Get-Command pwsh -All).Source` — any result under a
 `WindowsApps` folder would hit this.
+
+### Subagents
+
+Codex can spawn its own subagents during a run. `--subagent-model` and `--subagent-effort` set the
+model and reasoning effort they start with. Without them, subagents follow Codex's own config, and
+with nothing set there they start on the run's own model and effort. Codex's config reference
+notes that a model the run names when it spawns a subagent still takes precedence. Subagents run
+inside the run's sandbox.
+
+- **Every resume needs them again.** Codex does not carry them over: a resumed turn without the
+  flags spawns subagents on Codex's own defaults.
+- **A bad value can fail at startup or only at spawn.** An unknown model or an effort the
+  model does not support is caught only when Codex spawns a subagent: the run can still end
+  `completed` with exit `0`, and the error appears in `stderrPath` or Codex's final report. When the
+  subagents' work matters, read both. A model name TOML reads as a number, such as `5.5`, fails
+  earlier: Codex stops at startup with `invalid type … expected a string`.
+- **Give a run that spawns subagents a `--timeout`.** A failed spawn can leave Codex waiting on no
+  subagent at all: in one resumed run, Codex reused an earlier turn's subagent name, the spawn was
+  refused, and the run stayed idle for 50 minutes until the relay was terminated.
 
 ### Web search
 
@@ -118,7 +139,7 @@ sandbox's write limits, so reach for it before `--sandbox danger-full-access`, w
 - `touchedFiles` — `git status --porcelain` lines in the working root: your review starting point. `null` (not `[]`) when git can't report — `git` missing, or a non-repo run under `--skip-git-repo-check`; `[]` means git ran and the tree is clean
 - `briefPath` / `eventsPath` / `finalPath` — the exact brief relay sent, the raw JSONL event stream, and the final-message file
 - `stderrPath` — the complete stderr stream in `stderr.txt`, including diagnostics omitted from the summary
-- `workdir`, `sandbox`, `model`, `effort`, `webSearch`, `networkAccess`, `resumeLast`, `session`, `cleanEnv`, `keepEnv`, `startedAt`, `finishedAt` — `sandbox` is the applied mode, or a note that Codex used its active config on an unqualified resume; `session` is the explicit session id, or `null` for fresh and `--resume-last` runs; `keepEnv` records names only, never values; `webSearch` is the mode the relay passed, or `null` when Codex used its configured mode (which may still search)
+- `workdir`, `sandbox`, `model`, `effort`, `webSearch`, `networkAccess`, `resumeLast`, `session`, `cleanEnv`, `keepEnv`, `startedAt`, `finishedAt` — `sandbox` is the applied mode, or a note that Codex used its active config on an unqualified resume; `session` is the explicit session id, or `null` for fresh and `--resume-last` runs; `keepEnv` records names only, never values; `webSearch` is the mode the relay passed, or `null` when Codex used its configured mode (which may still search); `subagentModel` and `subagentEffort` are the values the relay passed, or `null` when subagents used Codex's own defaults
 - `stderrTail` — up to 20 nonblank lines from the final 64 KiB of stderr; a partial first line is marked as truncated. Present on every run that did not complete (`failed`, `timeout`, `aborted`), absent on `completed`, `codex_unavailable`, and launch failures. Read `stderrPath` for the complete diagnostics.
 - `error` — present on a launch failure, and on `timeout` and `aborted` runs
 
@@ -166,6 +187,10 @@ process has exited and `result.json` is written — not when a status line says 
 - **`status: failed` with `signal: "SIGKILL"`:** the host ended the child — commonly the OOM killer
   or a supervisor timeout, not an implementer error. Free up host memory or split the task into
   smaller briefs, then re-dispatch.
+- **`status: completed`, but a subagent never ran:** Codex checks that a `--subagent-model` exists
+  and supports the `--subagent-effort` only when it spawns a subagent, so a bad value fails the
+  spawn and the run carries on. Look for the spawn error in `stderrPath` or the final report, fix the
+  value, and resume.
 - **Empty `finalMessage`:** Codex exited before producing a final message. Treat as a failed run;
   the events log usually shows where it stopped.
 
@@ -184,8 +209,8 @@ what was lost.
 Under the hood the helper runs roughly:
 
 ```bash
-codex exec --json -o <final.txt> -s workspace-write [-m model] [-c model_reasoning_effort=<level>] [-c web_search=<mode>] [-c sandbox_workspace_write.network_access=true] - < brief.txt   # fresh run
-codex exec [-s mode] resume --last --json -o <final.txt> [-m model] [-c model_reasoning_effort=<level>] [-c web_search=<mode>] [-c sandbox_workspace_write.network_access=true] - < delta-brief.txt  # resume
+codex exec --json -o <final.txt> -s workspace-write [-m model] [-c model_reasoning_effort=<level>] [-c agents.default_subagent_model=<name>] [-c agents.default_subagent_reasoning_effort=<level>] [-c web_search=<mode>] [-c sandbox_workspace_write.network_access=true] - < brief.txt   # fresh run
+codex exec [-s mode] resume --last --json -o <final.txt> [-m model] [-c model_reasoning_effort=<level>] [-c agents.default_subagent_model=<name>] [-c agents.default_subagent_reasoning_effort=<level>] [-c web_search=<mode>] [-c sandbox_workspace_write.network_access=true] - < delta-brief.txt  # resume
 ```
 
 On resume, the helper places an explicit `--sandbox`/`--read-only` or fleet-lane sandbox before the
