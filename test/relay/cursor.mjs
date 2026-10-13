@@ -198,7 +198,7 @@ if (!h.WIN) {
 {
   // --stall-timeout: a live-but-silent cursor-agent is killed early and reported "stalled";
   // a long in-flight tool call and a steadily streaming turn must not trip it.
-  const stallRun = (name, mode, extra = ["--stall-timeout", "1s"]) => {
+  const stallRun = (name, mode, extra = ["--stall-timeout", "1s"], timeout = "60s") => {
     const outDir = join(h.scratch, `out-${name}-cursor`);
     const started = Date.now();
     const run = spawnSync(process.execPath, [
@@ -206,7 +206,7 @@ if (!h.WIN) {
       "--brief", h.briefPath,
       "--cd", h.freshRepo(`work-${name}-cursor`),
       "--out-dir", outDir,
-      "--timeout", "60s",
+      "--timeout", timeout,
       ...extra,
     ], { env: { ...h.baseEnv, SMOKE_MODE: mode }, encoding: "utf8", timeout: 30_000 });
     return { run, elapsed: Date.now() - started, value: existsSync(join(outDir, "result.json")) ? h.result(outDir) : {} };
@@ -225,6 +225,14 @@ if (!h.WIN) {
   const steady = stallRun("steady", "cursor-steady");
   h.check("cursor stall: a steadily streaming run longer than --stall-timeout completes",
     steady.run.status === 0 && steady.value.status === "completed");
+  if (!h.WIN) {
+    const wallClock = stallRun("wall-clock-first", "cursor-delayed-shutdown", ["--stall-timeout", "2s"], "1s");
+    h.check("cursor stall: a wall-clock timeout keeps its cause during delayed shutdown",
+      wallClock.run.status === 1 && wallClock.value.status === "timeout" &&
+      wallClock.value.exitCode === 1 && wallClock.value.signal === null &&
+      wallClock.value.error?.includes("--timeout 1s") &&
+      !wallClock.value.error?.includes("--stall-timeout") && wallClock.elapsed >= 3000);
+  }
   const off = stallRun("stall-off", "cursor-steady", []);
   h.check("cursor stall: --stall-timeout is opt-in (stallTimeout null by default)",
     off.value.status === "completed" && off.value.stallTimeout === null);

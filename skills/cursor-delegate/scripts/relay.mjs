@@ -641,6 +641,7 @@ function dispatchToCursor(opts, brief, run, writeResult) {
   const watchdogTimer = setTimeout(fireWatchdog, timeoutMs);
   const stallMs = opts.stallTimeout === null ? null : parseDuration(opts.stallTimeout);
   const stallPoll = stallMs === null ? null : setInterval(() => {
+    if (watchdogFired || settled) return;
     if (toolsInFlight.size > 0) {
       lastActivity = Date.now();
     } else if (Date.now() - lastActivity >= stallMs) {

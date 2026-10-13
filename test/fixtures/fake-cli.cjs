@@ -52,7 +52,7 @@ if (versionProbe && process.env.SMOKE_MODE === "grok-spawn-error" && process.pla
 //   cursor-stall      init, then silent forever without exiting (the observed live hang)
 //   cursor-slow-tool  a tool call that stays in flight longer than --stall-timeout, then completes
 //   cursor-steady     keeps emitting thinking deltas past --stall-timeout, then completes
-if (["cursor-stall", "cursor-slow-tool", "cursor-steady"].includes(process.env.SMOKE_MODE)) {
+if (["cursor-stall", "cursor-delayed-shutdown", "cursor-slow-tool", "cursor-steady"].includes(process.env.SMOKE_MODE)) {
   const emit = (event) => console.log(JSON.stringify({ session_id: "cursor-stall-session", ...event }));
   const finish = () => {
     emit({ type: "result", subtype: "success", is_error: false, result: "fake cursor finished" });
@@ -62,7 +62,10 @@ if (["cursor-stall", "cursor-slow-tool", "cursor-steady"].includes(process.env.S
   process.stdin.on("end", () => {
     emit({ type: "system", subtype: "init", model: "fake", permissionMode: "default" });
     const mode = process.env.SMOKE_MODE;
-    if (mode === "cursor-stall") {
+    if (mode === "cursor-delayed-shutdown") {
+      process.once("SIGTERM", () => setTimeout(() => process.exit(0), 2500));
+      setInterval(() => {}, 1000);
+    } else if (mode === "cursor-stall") {
       emit({ type: "thinking", subtype: "completed" });
       setInterval(() => {}, 1000);
     } else if (mode === "cursor-slow-tool") {
