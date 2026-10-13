@@ -207,6 +207,28 @@ export const IMPLEMENTERS = Object.freeze([
     winShell: false,
   },
   {
+    key: "muse",
+    skill: "muse-delegate",
+    binary: "muse",
+    versionArgs: ["--version"],
+    // No status command that is safe to parse; `muse login` / META_API_KEY are the
+    // documented auth paths, and auth.json must not be opened.
+    authProbe: null,
+    modelProbe: null,
+    // sessions/<yyyy>/<mm>/<dd>/<id>/ — one directory per session; session.jsonl
+    // inside is conversation content and is never opened. Default XDG root only:
+    // a custom XDG_DATA_HOME store reports unknown rather than guessing.
+    usageProbe: {
+      homeSubdir: ".local/share/muse",
+      path: ["sessions", "*", "*", "*"],
+      entry: "dir",
+      match: /./,
+    },
+    // --provider echo|meta is relay-only, not a fleet dial.
+    supports: ["model", "effort", "timeout", "readOnly"],
+    winShell: false,
+  },
+  {
     key: "qoder",
     skill: "qoder-delegate",
     binary: "qodercli",
@@ -394,6 +416,7 @@ export const CLAUDE_EFFORT = Object.freeze(["low", "medium", "high", "xhigh", "m
 export const AGY_EFFORT = Object.freeze(["low", "medium", "high"]);
 export const COPILOT_EFFORT = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
 export const OMP_THINKING = Object.freeze(["off", "auto", "minimal", "low", "medium", "high", "xhigh", "max"]);
+export const MUSE_EFFORT = Object.freeze(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
 export const CODEX_SANDBOX = Object.freeze(["read-only", "workspace-write", "danger-full-access"]);
 export const GROK_SANDBOX = Object.freeze(["workspace", "read-only", "off"]);
 export const QODER_PERMISSION = Object.freeze([

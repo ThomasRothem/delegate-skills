@@ -245,6 +245,7 @@ if (observation === "models") {
         tests: { implementer: "grok", effort: "medium" },
         "codex-review": { implementer: "codex", readOnly: true },
         "opencode-review": { implementer: "opencode", model: "opencode/grok", readOnly: true },
+        "muse-review": { implementer: "muse", readOnly: true, effort: "high" },
       },
     };
     const goodFile = join(cfgRepo, "lanes.json");
@@ -279,6 +280,32 @@ if (observation === "models") {
       env: process.env,
     });
     h.check("config validate requires provider/model for opencode", rejectBareModel.status === 2);
+
+    const museProvider = {
+      version: "delegate-fleet.v1",
+      lanes: { feature: { implementer: "muse", provider: "echo" } },
+    };
+    const museProviderFile = join(cfgRepo, "muse-provider.json");
+    writeFileSync(museProviderFile, `${JSON.stringify(museProvider)}\n`);
+    const rejectMuseProvider = spawnSync(process.execPath, [join(setupDir, "config.mjs"), "validate", museProviderFile], {
+      encoding: "utf8",
+      env: process.env,
+    });
+    h.check("config validate rejects provider on muse",
+      rejectMuseProvider.status === 2 && /does not support provider/.test(rejectMuseProvider.stderr));
+
+    const museEffort = {
+      version: "delegate-fleet.v1",
+      lanes: { feature: { implementer: "muse", effort: "banana" } },
+    };
+    const museEffortFile = join(cfgRepo, "muse-effort.json");
+    writeFileSync(museEffortFile, `${JSON.stringify(museEffort)}\n`);
+    const rejectMuseEffort = spawnSync(process.execPath, [join(setupDir, "config.mjs"), "validate", museEffortFile], {
+      encoding: "utf8",
+      env: process.env,
+    });
+    h.check("config validate rejects unknown muse effort",
+      rejectMuseEffort.status === 2 && /none, minimal, low/.test(rejectMuseEffort.stderr));
 
     for (const [model, boundary] of [
       ["opencode/", "after"],
@@ -828,6 +855,37 @@ if (observation === "models") {
         !opencodeResumeArgs.includes("--auto") &&
         h.result(opencodeResumeOut).agent === "plan" &&
         h.result(opencodeResumeOut).resumed === true);
+
+    const museReviewOut = join(cfgRepo, "out-lane-muse-review");
+    const museReviewArgsFile = join(cfgRepo, "args-lane-muse-review.json");
+    mkdirSync(museReviewOut, { recursive: true });
+    const museReviewRun = spawnSync(
+      process.execPath,
+      [
+        h.relayPath("muse"),
+        "--brief", laneBrief,
+        "--cd", cfgRepo,
+        "--out-dir", museReviewOut,
+        "--lane", "muse-review",
+      ],
+      {
+        encoding: "utf8",
+        env: { ...fleetEnv, SMOKE_MODE: "muse-success", SMOKE_ARGS_FILE: museReviewArgsFile },
+      },
+    );
+    const museReviewArgs = existsSync(museReviewArgsFile)
+      ? (h.WIN
+        ? readFileSync(museReviewArgsFile, "utf8").split(/\r?\n/).filter(Boolean)
+        : JSON.parse(readFileSync(museReviewArgsFile, "utf8")))
+      : [];
+    h.check("relay --lane: muse read-only lane adds disable-write and disable-shell",
+      museReviewRun.status === 0 &&
+        museReviewArgs.includes("--disable-write") &&
+        museReviewArgs.includes("--disable-shell") &&
+        museReviewArgs.includes("--disable-approval") &&
+        !museReviewArgs.includes("--yolo") &&
+        h.pair(museReviewArgs, "--reasoning-effort", "high") &&
+        h.result(museReviewOut).readOnly === true);
 
     const wrongSkill = spawnSync(
       process.execPath,
