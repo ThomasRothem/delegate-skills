@@ -108,6 +108,13 @@ if (process.env.SMOKE_MODE === "orphan-holds-stdio") {
   }
   process.exit(0);
 }
+if (process.env.SMOKE_MODE === "muse-stderr-flood") {
+  // Many small lines, each written synchronously: the total exceeds the relay's
+  // 64 KiB tail window many times over without relying on one huge pipe write.
+  for (let i = 1; i <= 20000; i += 1) fs.writeSync(2, `diagnostic ${i}\n`);
+  fs.writeSync(2, "fatal: last diagnostic\n");
+  process.exit(7);
+}
 if (process.env.SMOKE_MODE === "codex-stderr-long-line") {
   // The 64 KiB suffix starts inside a four-byte character.
   fs.writeSync(2, "🐎".repeat(20000) + "fin");
@@ -470,6 +477,20 @@ if (["omp-success", "omp-error"].includes(process.env.SMOKE_MODE)) {
     emit({ type: "step_finish", sessionID: sid, part: { type: "step-finish", cost: 0.0025 } });
     process.exit(0);
   });
+} else if (["muse-success", "muse-unfinished"].includes(process.env.SMOKE_MODE)) {
+  if (process.env.SMOKE_ARGS_FILE) fs.writeFileSync(process.env.SMOKE_ARGS_FILE, JSON.stringify(args));
+  console.log(JSON.stringify({
+    payload_type: "session.run.linked",
+    stream: { kind: "session", id: "01a06628-aaaa-bbbb-cccc-ddddeeeeffff" },
+    payload: {},
+  }));
+  if (process.env.SMOKE_MODE === "muse-success") {
+    console.log(JSON.stringify({
+      payload_type: "run.terminal.completed",
+      payload: { kind: "run_terminal", terminal: "completed", text: "fake muse completed" },
+    }));
+  }
+  process.exit(0);
 } else {
   process.stdin.resume();
   const grandProgram = process.env.SMOKE_GRAND_IGNORES_SIGTERM

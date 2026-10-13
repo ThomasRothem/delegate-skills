@@ -13,6 +13,31 @@ export function runDelegateSetup(h) {
   const help = spawnSync(process.execPath, [join(setupDir, "discover.mjs"), "--help"], { encoding: "utf8" });
   h.check("discover --help exits 0", help.status === 0 && /discover\.mjs/.test(help.stdout));
 
+  const museHome = join(h.scratch, "discover-muse-home");
+  const museDefaultRoot = join(museHome, ".local", "share");
+  const museCustomRoot = join(h.scratch, "discover-muse-custom");
+  mkdirSync(join(museDefaultRoot, "muse", "sessions", "2020", "01", "01", "legacy"), { recursive: true });
+  for (const session of ["current-one", "current-two"]) {
+    mkdirSync(join(museCustomRoot, "muse", "sessions", "2026", "10", "13", session), { recursive: true });
+  }
+  for (const [label, xdgRoot, expectedSessions] of [
+    ["default", "", 1],
+    ["explicit default", museDefaultRoot, 1],
+    ["custom", museCustomRoot, 2],
+    ["missing custom", join(h.scratch, "missing-muse-store"), null],
+  ]) {
+    const usageRun = spawnSync(process.execPath, [join(setupDir, "discover.mjs"), "--usage"], {
+      encoding: "utf8",
+      env: { ...h.baseEnv,
+        HOME: museHome, USERPROFILE: museHome, XDG_DATA_HOME: xdgRoot },
+    });
+    const usage = usageRun.status === 0
+      ? JSON.parse(usageRun.stdout).discovered.find(({ key }) => key === "muse")?.usage
+      : undefined;
+    h.check(`Muse usage uses the ${label} XDG store`,
+      expectedSessions === null ? usage === null : usage?.sessions === expectedSessions && typeof usage.lastUsed === "string");
+  }
+
   const discover = spawnSync(process.execPath, [join(setupDir, "discover.mjs")], {
     encoding: "utf8",
     timeout: 120_000,
@@ -115,6 +140,8 @@ export function runDelegateSetup(h) {
       shimmedCommandCode.discovered.some(({ key, path, version }) =>
         key === "commandcode" && path === commandCodeShim && version === "override-commandcode"),
     );
+    h.check("discover .cmd probes avoid DEP0190 on Windows Node 24+",
+      Number(process.versions.node.split(".")[0]) < 24 || !withCommandCodeShim.stderr.includes("DEP0190"));
   }
 
   const agyProbeDir = join(h.scratch, "discover-agy");
@@ -206,6 +233,9 @@ if (observation === "models") {
         grok?.models?.status === modelStatus &&
         (first !== "models" || grok.models.values[0] === "grok-code-fast-1"),
     );
+    if (h.WIN && Number(process.versions.node.split(".")[0]) >= 24) {
+      h.check(`Grok .cmd probes avoid DEP0190 when ${first}`, !grokDiscover.stderr.includes("DEP0190"));
+    }
   }
 
   // Keep fixtures inside the repo tree so sandboxed CI/dev runs can write; seed a
@@ -240,6 +270,7 @@ if (observation === "models") {
         tests: { implementer: "grok", effort: "medium" },
         "codex-review": { implementer: "codex", readOnly: true },
         "opencode-review": { implementer: "opencode", model: "opencode/grok", readOnly: true },
+        "muse-review": { implementer: "muse", readOnly: true, effort: "high" },
       },
     };
     const goodFile = join(cfgRepo, "lanes.json");
@@ -274,6 +305,32 @@ if (observation === "models") {
       env: process.env,
     });
     h.check("config validate requires provider/model for opencode", rejectBareModel.status === 2);
+
+    const museProvider = {
+      version: "delegate-fleet.v1",
+      lanes: { feature: { implementer: "muse", provider: "echo" } },
+    };
+    const museProviderFile = join(cfgRepo, "muse-provider.json");
+    writeFileSync(museProviderFile, `${JSON.stringify(museProvider)}\n`);
+    const rejectMuseProvider = spawnSync(process.execPath, [join(setupDir, "config.mjs"), "validate", museProviderFile], {
+      encoding: "utf8",
+      env: process.env,
+    });
+    h.check("config validate rejects provider on muse",
+      rejectMuseProvider.status === 2 && /does not support provider/.test(rejectMuseProvider.stderr));
+
+    const museEffort = {
+      version: "delegate-fleet.v1",
+      lanes: { feature: { implementer: "muse", effort: "banana" } },
+    };
+    const museEffortFile = join(cfgRepo, "muse-effort.json");
+    writeFileSync(museEffortFile, `${JSON.stringify(museEffort)}\n`);
+    const rejectMuseEffort = spawnSync(process.execPath, [join(setupDir, "config.mjs"), "validate", museEffortFile], {
+      encoding: "utf8",
+      env: process.env,
+    });
+    h.check("config validate rejects unknown muse effort",
+      rejectMuseEffort.status === 2 && /none, minimal, low/.test(rejectMuseEffort.stderr));
 
     for (const [model, boundary] of [
       ["opencode/", "after"],
@@ -395,6 +452,45 @@ if (observation === "models") {
       { encoding: "utf8", env: h.baseEnv },
     );
     h.check("opencode relay rejects shell-unsafe --variant", unsafeVariantFlag.status === 2);
+
+    // OpenCode catalog ids carry '@' and '~', neither of which is a shell metacharacter.
+    for (const [shape, model] of [
+      ["Workers AI @cf/", "cloudflare-workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast"],
+      ["Vertex @default", "google-vertex-anthropic/claude-opus-4-8@default"],
+      ["region @eu", "requesty/gpt-6.1-sol@eu"],
+      ["OpenRouter ~latest", "openrouter/~anthropic/claude-sonnet-latest"],
+    ]) {
+      const catalogModel = {
+        version: "delegate-fleet.v1",
+        lanes: { feature: { implementer: "opencode", model } },
+      };
+      const catalogModelFile = join(cfgRepo, `catalog-opencode-model-${shape.replace(/\W+/g, "-")}.json`);
+      writeFileSync(catalogModelFile, `${JSON.stringify(catalogModel)}\n`);
+      const acceptCatalogModel = spawnSync(
+        process.execPath,
+        [join(setupDir, "config.mjs"), "validate", catalogModelFile],
+        { encoding: "utf8", env: process.env },
+      );
+      h.check(`config validate accepts opencode catalog model id (${shape})`, acceptCatalogModel.status === 0);
+    }
+    // '@' and '~' must not open the door to cmd.exe metacharacters ('&', '%') riding alongside them.
+    for (const [index, model] of ["x/@cf & whoami", "x/~%PATH%"].entries()) {
+      const badOpenCodeModel = {
+        version: "delegate-fleet.v1",
+        lanes: { feature: { implementer: "opencode", model } },
+      };
+      const badOpenCodeModelFile = join(cfgRepo, `bad-opencode-model-${index}.json`);
+      writeFileSync(badOpenCodeModelFile, `${JSON.stringify(badOpenCodeModel)}\n`);
+      const rejectOpenCodeModel = spawnSync(
+        process.execPath,
+        [join(setupDir, "config.mjs"), "validate", badOpenCodeModelFile],
+        { encoding: "utf8", env: process.env },
+      );
+      h.check(
+        `config validate rejects shell-unsafe opencode model (${model})`,
+        rejectOpenCodeModel.status === 2 && /unsupported characters/.test(rejectOpenCodeModel.stderr),
+      );
+    }
 
     const badEffort = {
       version: "delegate-fleet.v1",
@@ -784,6 +880,37 @@ if (observation === "models") {
         !opencodeResumeArgs.includes("--auto") &&
         h.result(opencodeResumeOut).agent === "plan" &&
         h.result(opencodeResumeOut).resumed === true);
+
+    const museReviewOut = join(cfgRepo, "out-lane-muse-review");
+    const museReviewArgsFile = join(cfgRepo, "args-lane-muse-review.json");
+    mkdirSync(museReviewOut, { recursive: true });
+    const museReviewRun = spawnSync(
+      process.execPath,
+      [
+        h.relayPath("muse"),
+        "--brief", laneBrief,
+        "--cd", cfgRepo,
+        "--out-dir", museReviewOut,
+        "--lane", "muse-review",
+      ],
+      {
+        encoding: "utf8",
+        env: { ...fleetEnv, SMOKE_MODE: "muse-success", SMOKE_ARGS_FILE: museReviewArgsFile },
+      },
+    );
+    const museReviewArgs = existsSync(museReviewArgsFile)
+      ? (h.WIN
+        ? readFileSync(museReviewArgsFile, "utf8").split(/\r?\n/).filter(Boolean)
+        : JSON.parse(readFileSync(museReviewArgsFile, "utf8")))
+      : [];
+    h.check("relay --lane: muse read-only lane adds disable-write and disable-shell",
+      museReviewRun.status === 0 &&
+        museReviewArgs.includes("--disable-write") &&
+        museReviewArgs.includes("--disable-shell") &&
+        museReviewArgs.includes("--disable-approval") &&
+        !museReviewArgs.includes("--yolo") &&
+        h.pair(museReviewArgs, "--reasoning-effort", "high") &&
+        h.result(museReviewOut).readOnly === true);
 
     const wrongSkill = spawnSync(
       process.execPath,
